@@ -186,6 +186,22 @@ Needs OpenTelV's home screen (`./opentelv/home.sh`). The approach follows
 [FireStick Fixer](https://github.com/Hornet34/firestick-fixer), which documents it on
 this stick (AFTMA08C15, Fire OS 8); OpenTelV's code is its own.
 
+## Releases
+
+Each [GitHub release](https://github.com/AdrielleU/opentelv/releases) carries
+`opentelv-vX.Y.Z.zip` (the whole project, ready to unzip and run), the home screen APK
+on its own, and `SHA256SUMS` for both. Check a download with
+`sha256sum -c SHA256SUMS --ignore-missing`.
+
+To publish one (maintainer): commit and push, then
+
+```sh
+NOTES=notes.md ./opentelv/release.sh v0.2.0     # --dry-run first to see the checksums
+```
+
+The zip is made with `git archive`, so only committed files are in it: never the
+signing key, `report/` or `dumbtv.conf`.
+
 ## Pulling dumbtv updates
 
 Commit your own work first, then (the `upstream` remote is added once):
