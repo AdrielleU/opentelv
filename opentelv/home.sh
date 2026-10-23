@@ -14,6 +14,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/../scripts/lib.sh"
 PKG=tv.dumbtv.home
 APK="$ROOT/opentelv/home/opentelv-home.apk"
 TOOLS=${OPENTELV_TOOLCHAIN:-$HOME/.local/opentelv-toolchain}
+# The APK's SHA-256, written by `build` and checked before every install.
+SUM="$APK.sha256"
+
+sha256() {
+  if command -v sha256sum >/dev/null; then sha256sum "$1" | awk '{print $1}'
+  else shasum -a 256 "$1" | awk '{print $1}'; fi
+}
 
 cmd=${1:-install}
 case $cmd in install|build) shift || true ;; -*) cmd=install ;; esac
@@ -27,12 +34,22 @@ if [[ $cmd == build ]]; then
   (cd "$ROOT/launcher" && ./build.sh) || die "build failed"
   mkdir -p "$(dirname "$APK")"
   cp "$ROOT/launcher/build/dumbtv-home.apk" "$APK"
+  sha256 "$APK" > "$SUM"
   note "built $APK"
+  note "sha256 $(cat "$SUM") (in $(basename "$SUM"); commit both)"
   note "keep launcher/release.keystore: every later build must be signed with it"
   exit 0
 fi
 
 [[ -f $APK ]] || die "no $APK: run ./opentelv/home.sh build on a machine with the SDK"
+# Catches a truncated download, a bad merge, or an APK swapped without its checksum.
+# Both files come from the same repo, so this checks the file, not who published it;
+# Android's signature check guards updates over an installed copy.
+[[ -f $SUM ]] || die "no $SUM: the APK cannot be checked, so it is not installed"
+want=$(tr -d '[:space:]' < "$SUM")
+got=$(sha256 "$APK")
+[[ $got == "$want" ]] || die "checksum mismatch for $APK (got $got, want $want) — not installing"
+note "checksum ok"
 need_device
 
 # dumbtv's release and this build are signed with different keys, and Android only

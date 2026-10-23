@@ -145,6 +145,10 @@ OpenTelV builds dumbtv home with small layout changes:
 ./launcher/install.sh --undo    # hand HOME back to Amazon
 ```
 
+`home.sh` checks the APK against `opentelv/home/opentelv-home.apk.sha256` and
+refuses to install on a mismatch or a missing checksum; `home.sh build` writes both,
+and they are committed together.
+
 dumbtv's release is signed with dumbtv's key, this build with OpenTelV's, and Android
 will not update one with the other. The first `home.sh` removes the installed copy,
 so dumbtv home's own settings (order, names, hidden tiles) reset once.
