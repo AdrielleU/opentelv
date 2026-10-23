@@ -39,20 +39,22 @@ jobs:
           [ "$min" = 25 ] || { echo "expected minSdkVersion 25, found $min"; exit 1; }
       - name: no permissions on Fire OS 7 and later
         run: |
-          # The only permissions allowed are Fire OS 6's Keeper trio, each capped at sdk 27.
+          # The only permissions allowed are Fire OS 6's Keeper trio, each capped at sdk 27,
+          # plus OpenTelV's READ_LOGS for the remote app buttons: a development permission,
+          # never asked for at install, granted only by opentelv/buttons.sh over adb.
           dump=$("$ANDROID_HOME/build-tools/34.0.0/aapt2" dump permissions launcher/build/dumbtv-home.apk)
           echo "$dump"
-          extra=$(echo "$dump" | grep uses-permission | grep -v "maxSdkVersion='27'" || true)
+          extra=$(echo "$dump" | grep uses-permission | grep -v "maxSdkVersion='27'" | grep -v "android.permission.READ_LOGS'" || true)
           [ -z "$extra" ] || { echo "the launcher must request no permissions on sdk 28+, found: $extra"; exit 1; }
           n=$(echo "$dump" | grep -c uses-permission || true)
-          [ "$n" -le 3 ] || { echo "expected at most the 3 Fire OS 6 permissions, found $n"; exit 1; }
+          [ "$n" -le 4 ] || { echo "expected at most the 3 Fire OS 6 permissions and READ_LOGS, found $n"; exit 1; }
 
   scripts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: syntax
-        run: for f in scripts/*.sh launcher/*.sh; do bash -n "$f" || exit 1; done
+        run: for f in scripts/*.sh launcher/*.sh opentelv/*.sh; do bash -n "$f" || exit 1; done
       - name: offline script tests (no device)
         run: python3 -m unittest discover -s tests -v
       - name: launcher version manifest

@@ -111,7 +111,7 @@ enter that ID and password.
 
 **By IP address on the home network** (no ID, no relay): in RustDesk on the TV,
 **Settings › Screen sharing › Direct IP access** on (port 21118), and set the **IP
-whitelist** to your network, such as `10.1.1.0/24`. From a computer on the same
+whitelist** to your network: the TV's address with the last number as `0/24`. From a computer on the same
 network, type the TV's IP into RustDesk's ID box. `apps.sh` prints both values for
 your TV. Never forward port 21118 on the router; away from home, use the TV's
 Tailscale IP (`100.x.y.z`) instead. RustDesk keeps these settings in
