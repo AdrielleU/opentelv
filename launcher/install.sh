@@ -91,6 +91,8 @@ dev_sdk=$(sh_ getprop ro.build.version.sdk | tr -d '\r')
 case $dev_sdk in ''|*[!0-9]*) dev_sdk=28 ;; esac
 
 build_apk() {
+  # OpenTelV: HOME_APK installs an APK built elsewhere (opentelv/home.sh) instead.
+  if [[ -n ${HOME_APK:-} ]]; then APK=$HOME_APK; return; fi
   ./build.sh
   APK=build/dumbtv-home.apk
 }

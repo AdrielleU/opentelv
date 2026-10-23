@@ -7,14 +7,17 @@ import android.view.ViewGroup;
 /**
  * Lays out same-size tiles in as many columns as fit the available width, wrapping to a new
  * row instead of scrolling sideways. Used in place of the horizontal strip when Options >
- * Layout is "grid"; column count follows the tile size setting, not a fixed number, so Small,
- * Medium and Large each pack a different number of columns into the same screen width.
+ * Layout is "grid"; column count follows the tile size setting, so Small, Medium and Large each
+ * pack a different number of columns into the same screen width, capped by Options > Grid
+ * columns when that is a number.
  *
  * The outer vertical ScrollView does all the scrolling; this view only ever grows as tall as
  * its rows need.
  */
 final class Grid extends ViewGroup {
     private final int hGap, vGap;
+    /** Most tiles on one line; 0 means as many as fit. */
+    private int maxColumns;
 
     Grid(Context c) {
         super(c);
@@ -24,8 +27,15 @@ final class Grid extends ViewGroup {
         vGap = Ui.dp(c, 18);
     }
 
+    void setMaxColumns(int max) {
+        if (max == maxColumns) return;
+        maxColumns = max;
+        requestLayout();
+    }
+
     private int columns(int availableWidth, int childWidth) {
-        return Math.max(1, (availableWidth + hGap) / (childWidth + hGap));
+        int fit = Math.max(1, (availableWidth + hGap) / (childWidth + hGap));
+        return maxColumns > 0 ? Math.min(fit, maxColumns) : fit;
     }
 
     /** Columns in the current layout; 1 before the first layout pass or with no tiles. */

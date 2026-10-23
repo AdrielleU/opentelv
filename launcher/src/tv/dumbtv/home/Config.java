@@ -58,9 +58,13 @@ final class Config {
     static final Choice TILES = new Choice("tiles", "Tile size", "medium",
             new String[] {"small", "medium", "large"},
             new String[] {"Small", "Medium", "Large"});
-    static final Choice LAYOUT = new Choice("layout", "Layout", "rows",
+    // OpenTelV: the grid is the default, four tiles to a line.
+    static final Choice LAYOUT = new Choice("layout", "Layout", "grid",
             new String[] {"rows", "grid"},
             new String[] {"Rows", "Grid"});
+    static final Choice COLUMNS = new Choice("columns", "Grid columns", "4",
+            new String[] {"auto", "3", "4", "5", "6"},
+            new String[] {"As many as fit", "3", "4", "5", "6"});
     static final Choice LABELS = new Choice("labels", "App names", "focus",
             new String[] {"focus", "always", "never"},
             new String[] {"On focus", "Always", "Never"});
@@ -84,7 +88,7 @@ final class Config {
             new String[] {"off", "visit", "hourly", "daily", "daytime"},
             new String[] {"Off", "Every return home", "Every hour", "Every day", "By time of day"});
 
-    static final Choice[] CHOICES = {ACCENT, TILES, LAYOUT, LABELS, CLOCK, INPUTS, SWITCH, BACKGROUND, DIM, ROTATE};
+    static final Choice[] CHOICES = {ACCENT, TILES, LAYOUT, COLUMNS, LABELS, CLOCK, INPUTS, SWITCH, BACKGROUND, DIM, ROTATE};
 
     /** Folder of wallpapers, next to home.conf, that Background › Image file rotates through. */
     static final String WALLPAPERS = "wallpapers";

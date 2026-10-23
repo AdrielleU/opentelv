@@ -104,6 +104,8 @@ public final class Guard extends AccessibilityService {
         lp.windowAnimations = 0;
         ((WindowManager) getSystemService(WINDOW_SERVICE)).addView(view, lp);
         cover = view;
+        // OpenTelV: remote app buttons mapped in home.conf.
+        Buttons.start(this);
     }
 
     @Override
@@ -112,6 +114,7 @@ public final class Guard extends AccessibilityService {
         handler.removeCallbacks(launch);
         if (cover != null) ((WindowManager) getSystemService(WINDOW_SERVICE)).removeView(cover);
         if (running == this) running = null;
+        Buttons.stop();
         super.onDestroy();
     }
 

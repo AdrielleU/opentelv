@@ -464,12 +464,15 @@ public final class Home extends Activity {
         head.setPadding(dp(56), 0, dp(56), dp(12));
         LinearLayout when = new LinearLayout(this);
         when.setOrientation(LinearLayout.VERTICAL);
-        clock = Ui.text(this, 52, Ui.TEXT, Ui.LIGHT);
-        date = Ui.text(this, 15, Ui.MUTED, Ui.MEDIUM);
-        date.setPadding(dp(2), dp(8), 0, 0);
+        // OpenTelV: clock and date at the size of the Options and Settings chips (14sp).
+        clock = Ui.text(this, 14, Ui.TEXT, Ui.MEDIUM);
+        date = Ui.text(this, 14, Ui.MUTED, Ui.MEDIUM);
+        date.setPadding(0, dp(4), 0, 0);
         when.addView(clock);
         when.addView(date);
         head.addView(when, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        // OpenTelV: every app, hidden ones too, A to Z.
+        head.addView(chip("All apps", v -> startActivity(new Intent(this, AllApps.class))));
         head.addView(chip("Options", v -> startActivity(new Intent(this, Options.class))));
         head.addView(chip("Settings", v -> openSettings()));
         column.addView(head, new LinearLayout.LayoutParams(MATCH, WRAP));
@@ -576,6 +579,8 @@ public final class Home extends Activity {
                 ? ((Tile) focused).item.id : null;
         boolean gridMode = "grid".equals(cfg.get(Config.LAYOUT));
         ViewGroup target = gridMode ? row.grid : row.strip;
+        String columns = cfg.get(Config.COLUMNS);
+        row.grid.setMaxColumns("auto".equals(columns) ? 0 : Integer.parseInt(columns));
         row.strip.removeAllViews();
         row.grid.removeAllViews();
 
@@ -706,7 +711,8 @@ public final class Home extends Activity {
             clock.setText(DateFormat.format("HH:mm", now));
         } else {
             SpannableString half = new SpannableString(" " + DateFormat.format("a", now));
-            half.setSpan(new RelativeSizeSpan(0.36f), 0, half.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            // OpenTelV: the clock is chip-sized now, so AM/PM stays near full size to stay legible.
+            half.setSpan(new RelativeSizeSpan(0.85f), 0, half.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             clock.setText(DateFormat.format("h:mm", now));
             clock.append(half);
         }
