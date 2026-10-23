@@ -1,0 +1,35 @@
+# Apps OpenTelV can install, for ./opentelv/apps.sh. Everything else in the repo is
+# dumbtv's; this file and opentelv/ are ours, so pulling upstream never conflicts.
+#
+# Format:  <key>  <package>  <source>  <display name>
+#   source appstore   opens the app's Amazon Appstore page; the Appstore installs it
+#                     and keeps it updated (Settings > Applications > Appstore >
+#                     Automatic Updates)
+#   source wireguard  not in the Appstore: the official APK from
+#                     download.wireguard.com, sha256-checked against latest.sig.
+#                     The app updates itself from the same place.
+#   source tailscale  the official APK from pkgs.tailscale.com, sha256-checked (the
+#                     Fire TV Appstore does not list it everywhere). Run apps.sh
+#                     tailscale again to update it.
+#   source files      Material Files, open source: a pinned, sha256-checked GitHub
+#                     release (not region-locked like Appstore file managers).
+#   source rustdesk   not in the Appstore: a pinned, sha256-checked GitHub release.
+#                     apps.sh also grants screen capture and input control over adb,
+#                     which the app cannot ask for with a TV remote. Update by
+#                     bumping the pin in apps.sh and running it again.
+#
+# VPN apps (tailscale, wireguard) and the dumbtv DNS filter share Android's one VPN
+# slot. ./opentelv/vpn.sh on <app> hands the slot to the VPN (DNS blocking pauses);
+# ./opentelv/vpn.sh off hands it back. See opentelv/README.md.
+
+netflix     com.netflix.ninja                    appstore   Netflix
+disneyplus  com.disney.disneyplus                appstore   Disney+
+hbomax      com.hbo.hbonow                       appstore   HBO Max
+crunchyroll com.crunchyroll.crunchyroid          appstore   Crunchyroll
+spotify     com.spotify.tv.android               appstore   Spotify
+wholphin    com.github.damontecres.wholphin      appstore   Wholphin (Jellyfin)
+moonlight   com.limelight                        appstore   Moonlight (game streaming)
+tailscale   com.tailscale.ipn                    tailscale  Tailscale
+wireguard   com.wireguard.android                wireguard  WireGuard
+files       me.zhanghai.android.files            files      Material Files (file picker for WireGuard import)
+rustdesk    com.carriez.flutter_hbb              rustdesk   RustDesk (remote desktop; work in progress)
