@@ -15,7 +15,18 @@ dry=0
 git fetch -q origin
 [[ $(git rev-parse HEAD) == $(git rev-parse origin/main) ]] ||
   { echo "error: HEAD is not origin/main; push first" >&2; exit 1; }
-git rev-parse -q --verify "refs/tags/$ver" >/dev/null && { echo "error: $ver already exists" >&2; exit 1; }
+# gh would otherwise pick a repo itself, and with dumbtv as `upstream` it picks dumbtv.
+repo=$(git remote get-url origin | sed -E 's#^.*[:/]([^/]+/[^/]+)$#\1#; s#\.git$##')
+[[ $repo == */* ]] || { echo "error: cannot read owner/repo from origin" >&2; exit 1; }
+gh release view "$ver" -R "$repo" >/dev/null 2>&1 && { echo "error: release $ver already exists in $repo" >&2; exit 1; }
+# A tag left by an interrupted run is reused, as long as it is this commit.
+if git rev-parse -q --verify "refs/tags/$ver" >/dev/null; then
+  [[ $(git rev-parse "$ver^{commit}") == $(git rev-parse HEAD) ]] ||
+    { echo "error: tag $ver exists on another commit" >&2; exit 1; }
+  tagged=1
+else
+  tagged=0
+fi
 
 sha256() {
   if command -v sha256sum >/dev/null; then sha256sum "$1" | awk '{print $1}'
@@ -32,14 +43,14 @@ cp opentelv/home/opentelv-home.apk "$out/"
   { echo "error: opentelv-home.apk does not match opentelv-home.apk.sha256" >&2; exit 1; }
 (cd "$out" && for f in "$zip" opentelv-home.apk; do printf '%s  %s\n' "$(sha256 "$f")" "$f"; done) > "$out/SHA256SUMS"
 
-echo "release $ver from $(git rev-parse --short HEAD)"
+echo "release $ver of $repo from $(git rev-parse --short HEAD)"
 cat "$out/SHA256SUMS"
 if unzip -l "$out/$zip" | grep -qE 'keystore|/report/|dumbtv\.conf'; then
   echo "error: the zip contains a private file" >&2; exit 1
 fi
 [[ $dry == 1 ]] && { echo "(dry run: nothing published)"; exit 0; }
 
-git tag -a "$ver" -m "OpenTelV $ver"
+if [[ $tagged == 0 ]]; then git tag -a "$ver" -m "OpenTelV $ver"; fi
 git push -q origin "$ver"
-gh release create "$ver" "$out/$zip" "$out/opentelv-home.apk" "$out/SHA256SUMS" \
+gh release create "$ver" -R "$repo" --verify-tag "$out/$zip" "$out/opentelv-home.apk" "$out/SHA256SUMS" \
   --title "OpenTelV $ver" --notes-file "${NOTES:-/dev/stdin}"
