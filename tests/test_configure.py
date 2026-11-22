@@ -46,6 +46,7 @@ class ConfigureKeepTest(unittest.TestCase):
         self.assertIn("ALEXA=1", conf)
         self.assertIn("PRIME=1", conf)
         self.assertIn("YOUTUBE=0", conf)
+        self.assertIn("DNSFILTER=0", conf)
 
     def test_flags_answer_every_question(self):
         result, conf = self.configure(
