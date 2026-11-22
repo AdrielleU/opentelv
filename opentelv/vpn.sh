@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Switches Android's one VPN slot between the on-TV DNS filter (the default) and a
-# VPN app. In VPN mode the disabled Amazon packages stay disabled; only the DNS
+# Switches Android's one VPN slot between a VPN app (WireGuard by default) and the
+# on-TV DNS filter. In VPN mode the disabled Amazon packages stay disabled; only the DNS
 # blocking pauses, until `off` hands the slot back to the filter.
 #
-#   ./opentelv/vpn.sh on tailscale       VPN mode: the app starts at boot, the on-TV
-#   ./opentelv/vpn.sh on wireguard       filter is switched off
-#   ./opentelv/vpn.sh off                back to the on-TV filter (the default)
+#   ./opentelv/vpn.sh on                 VPN mode with WireGuard (the default): the app
+#   ./opentelv/vpn.sh on tailscale       starts at boot, the on-TV filter is switched off
+#   ./opentelv/vpn.sh off                hand the slot back to the on-TV filter
 #   ./opentelv/vpn.sh check              are the Amazon hosts blocked right now?
 #   ./opentelv/vpn.sh blocklist          optional: the OpenTelV list for a DNS server
 #                                        (AdGuard Home, Pi-hole) behind the VPN
@@ -19,7 +19,10 @@ HAGEZI_URL=https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/nat
 
 cmd=${1:-}; shift || true
 app=""
-if [[ $cmd == on ]]; then app=${1:-}; shift || true; fi
+# WireGuard is OpenTelV's default VPN; `on` alone (or `on -y`) means `on wireguard`.
+if [[ $cmd == on ]]; then
+  case ${1:-} in -*|"") app=wireguard ;; *) app=$1; shift ;; esac
+fi
 parse_flags "$@"
 load_conf
 
@@ -27,7 +30,7 @@ vpn_pkg() {
   case $1 in
     tailscale) echo com.tailscale.ipn ;;
     wireguard) echo com.wireguard.android ;;
-    *) die "on what? tailscale or wireguard" ;;
+    *) die "on what? wireguard (the default) or tailscale" ;;
   esac
 }
 

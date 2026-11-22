@@ -39,7 +39,7 @@ and making that setup repeatable on the next TV.
 | **Apps** | One command installs the default set: Appstore apps keep auto-updating, the rest come from their official sources, checksum-checked |
 | **YouTube** | SmartTube instead of the stock app: no ads, no Shorts |
 | **Remote buttons** | The YouTube button opens SmartTube (or any app you pick) |
-| **VPN mode** | Tailscale (with an exit node) or WireGuard as an always-on VPN, and back to the DNS filter with one command |
+| **VPN mode** | WireGuard (default) or Tailscale (with an exit node) as an always-on VPN, and back to the DNS filter with one command |
 | **Undo** | Every step has one |
 
 ## Quick start
@@ -89,7 +89,7 @@ below). `./opentelv/apps.sh --list` shows them, `--choose` asks about each.
 **Optional:**
 
 ```sh
-./opentelv/vpn.sh on tailscale              # always-on VPN; DNS blocking pauses
+./opentelv/vpn.sh on                        # always-on WireGuard; DNS blocking pauses
 ./opentelv/vpn.sh off                       # back to the DNS filter
 ./opentelv/wg-import.sh home.conf           # import a WireGuard tunnel
 ```
@@ -138,7 +138,7 @@ point. Samsung, LG, Roku and VIDAA give owners no shell, so they are out of scop
 - [x] Home screen: grid layout, All apps, small clock
 - [x] App installer with a default set, Appstore auto-updates kept
 - [x] Remote app buttons mapped to any app
-- [x] VPN mode (Tailscale exit node, WireGuard) and WireGuard import
+- [x] VPN mode (WireGuard by default, Tailscale exit node) and WireGuard import
 - [ ] RustDesk control that works on Fire TV
 - [ ] Automate the Fire OS 8 DNS filter setting (today it is set by hand once)
 - [ ] **TV images**: save a set-up TV as a plain-text file (packages, settings, DNS,

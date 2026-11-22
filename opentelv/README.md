@@ -42,15 +42,16 @@ To add an app, add a line to [`apps.txt`](apps.txt). Any Appstore app works with
 `appstore` as its source; the package name is in `adb shell pm list packages -3` on
 a TV that has it, or in the app's Play Store URL.
 
-### VPN mode: Tailscale exit node or WireGuard
+### VPN mode: WireGuard (default) or Tailscale exit node
 
-Android has one VPN slot, and by default dumbtv's DNS filter holds it. VPN mode
-hands the slot to Tailscale or WireGuard; `off` hands it back.
+Android has one VPN slot. The DNS filter is off by default; when it is on
+(`--dnsfilter 1`) it holds that slot. VPN mode hands the slot to WireGuard (the
+default) or Tailscale; `off` hands it back.
 
 ```sh
-./opentelv/vpn.sh on tailscale  # Tailscale holds the slot, starts at boot
-./opentelv/vpn.sh on wireguard  # or the backup
-./opentelv/vpn.sh off           # back to the default: the on-TV filter
+./opentelv/vpn.sh on            # WireGuard holds the slot, starts at boot
+./opentelv/vpn.sh on tailscale  # or Tailscale instead
+./opentelv/vpn.sh off           # back to the on-TV filter
 ```
 
 | | Default | VPN mode |
