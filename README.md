@@ -241,7 +241,7 @@ A factory reset always removes everything OpenTelV did.
 
 | Device | Fire OS | Result |
 |---|---|---|
-| Fire TV Stick 4K Plus (AFTMA08C15), build RS8185.3891N | 8 (Android 11) | cleanup, DNS filter, home screen, apps, YouTube button: working |
+| Fire TV Stick 4K Plus (AFTMA08C15), build RS8185.3891N | 8 (Android 11) | cleanup, DNS filter, home screen, apps, YouTube button: working. WireGuard at boot, after a reboot, with the Fire TV remote app working while it is on: working (Nov 2026) |
 
 dumbtv's [device catalog](catalog/README.md) covers the cleanup on about twenty more
 Fire TV models. OpenTelV's additions have not been tried on them yet; reports are
