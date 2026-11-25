@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Switches Android's one VPN slot between a VPN app (WireGuard by default) and the
-# on-TV DNS filter. In VPN mode the disabled Amazon packages stay disabled; only the DNS
-# blocking pauses, until `off` hands the slot back to the filter.
+# VPN mode: a WireGuard tunnel that comes up at boot, or Tailscale switched on by hand.
+# Nothing is always-on: the home screen asks WireGuard for the tunnel once per boot,
+# once the internet is connected (Wi-Fi or Ethernet), so switching it off in WireGuard
+# (or using Tailscale) sticks.
 #
-#   ./opentelv/vpn.sh on                 VPN mode with WireGuard (the default): the app
-#   ./opentelv/vpn.sh on tailscale       starts at boot, the on-TV filter is switched off
-#   ./opentelv/vpn.sh off                hand the slot back to the on-TV filter
+#   ./opentelv/vpn.sh on [TUNNEL]        WireGuard brings TUNNEL up at every boot, and now
+#                                        (TUNNEL: the name WireGuard shows; once set, kept)
+#   ./opentelv/vpn.sh on tailscale       no tunnel at boot; switch Tailscale on in its app
+#   ./opentelv/vpn.sh off                no VPN at boot; the DNS filter takes the slot back
+#                                        if dumbtv.conf turns it on
+#   ./opentelv/vpn.sh status             what holds the slot, what starts at boot
 #   ./opentelv/vpn.sh check              are the Amazon hosts blocked right now?
 #   ./opentelv/vpn.sh blocklist          optional: the OpenTelV list for a DNS server
 #                                        (AdGuard Home, Pi-hole) behind the VPN
@@ -14,24 +18,48 @@ set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../scripts/lib.sh"
 
 FILTER=dnsfilter.android
+WG=com.wireguard.android
+TS=com.tailscale.ipn
+HOME_PKG=tv.dumbtv.home
 # Same feed dnsfilter.sh builds the on-TV list from.
 HAGEZI_URL=https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/native.amazon-onlydomains.txt
 
 cmd=${1:-}; shift || true
-app=""
-# WireGuard is OpenTelV's default VPN; `on` alone (or `on -y`) means `on wireguard`.
+app=""; tunnel=""
 if [[ $cmd == on ]]; then
-  case ${1:-} in -*|"") app=wireguard ;; *) app=$1; shift ;; esac
+  case ${1:-} in
+    tailscale) app=tailscale; shift ;;
+    wireguard) app=wireguard; shift ;;
+    *) app=wireguard ;;
+  esac
+  if [[ $app == wireguard ]]; then
+    case ${1:-} in -*|"") ;; *) tunnel=$1; shift ;; esac
+  fi
 fi
 parse_flags "$@"
 load_conf
 
-vpn_pkg() {
-  case $1 in
-    tailscale) echo com.tailscale.ipn ;;
-    wireguard) echo com.wireguard.android ;;
-    *) die "on what? wireguard (the default) or tailscale" ;;
-  esac
+# The home screen's boot-tunnel receiver (opentelv/home.sh 2026-11 or later).
+# Captured first: under pipefail, grep -q quitting early fails a long dumpsys pipe.
+home_has_vpn() {
+  local info
+  present "$HOME_PKG" || return 1
+  info=$(dev "dumpsys package $HOME_PKG")
+  grep -q 'CONTROL_TUNNELS' <<<"$info"
+}
+# Talks to it; prints "tunnel=<name> control=<granted|missing>".
+home_vpn() {
+  dev "am broadcast -n $HOME_PKG/.Vpn\\\$Set $*" | tr -d '\r' | sed -n 's/.*data="\(.*\)".*/\1/p'
+}
+boot_tunnel() { home_vpn | sed -n 's/^tunnel=\([^ ]*\).*/\1/p'; }
+tun_up() { dev 'ip -o link show' | grep -oE ': tun[0-9]+' | head -1 | tr -d ': '; }
+
+# Nobody keeps the VPN slot: no always-on app, and the filter (if any) stopped.
+free_slot() {
+  acmd settings delete secure always_on_vpn_app >/dev/null 2>&1
+  acmd settings delete secure always_on_vpn_lockdown >/dev/null 2>&1
+  # Disabling the filter app revokes its VPN, which frees the slot.
+  if present "$FILTER"; then acmd pm disable-user --user 0 "$FILTER" >/dev/null; fi
 }
 
 case $cmd in
@@ -52,43 +80,103 @@ blocklist)
   ;;
 
 on)
-  pkg=$(vpn_pkg "$app")
   need_device
-  present "$pkg" || die "$app is not installed: ./opentelv/apps.sh $app"
+  if [[ $app == tailscale ]]; then
+    present "$TS" || die "Tailscale is not installed: ./opentelv/apps.sh tailscale"
+    step "plan"
+    note "no WireGuard tunnel at boot; nothing is always-on, so Tailscale can take the slot"
+    [[ $DNSFILTER == 1 ]] && note "the on-TV filter ($FILTER) pauses; ./opentelv/vpn.sh off brings it back"
+    note "switch a WireGuard tunnel that is on now off first: one VPN at a time"
+    note "Tailscale: Exit node > Allow LAN access must be on, or adb loses the TV"
+    if [[ $DRY_RUN == 0 ]]; then confirm "Switch $SERIAL to Tailscale?" || die "cancelled"; fi
+    # Pre-granting the app-op skips the VPN consent box, which the remote cannot press.
+    acmd appops set "$TS" ACTIVATE_VPN allow >/dev/null
+    if home_has_vpn; then
+      [[ $DRY_RUN == 1 ]] && note "[dry-run] home screen: no tunnel at boot" || home_vpn --es tunnel "''" >/dev/null
+    fi
+    free_slot
+    acmd monkey -p "$TS" -c android.intent.category.LEANBACK_LAUNCHER 1 >/dev/null
+    [[ $DRY_RUN == 1 ]] && exit 0
+    adb_reconnect
+    step "now"
+    note "switch Tailscale on in its app (scrcpy or the remote); it stays off after a reboot"
+    exit 0
+  fi
+
+  present "$WG" || die "WireGuard is not installed: ./opentelv/apps.sh wireguard"
+  home_has_vpn || die "the installed home screen cannot start a tunnel at boot; update it: ./opentelv/home.sh"
+  [[ -n $tunnel ]] || tunnel=$(boot_tunnel)
+  [[ -n $tunnel ]] || die "which tunnel? ./opentelv/vpn.sh on <name>, the name WireGuard shows (wg-import.sh names it after the file)"
+  [[ $tunnel =~ ^[A-Za-z0-9_=+.-]{1,15}$ ]] || die "not a WireGuard tunnel name: $tunnel"
   step "plan"
-  note "$app holds the VPN slot and starts at boot (always-on VPN)"
-  note "the on-TV filter ($FILTER) pauses: Amazon's DNS is not blocked in VPN mode"
-  note "the disabled Amazon packages stay disabled; ./opentelv/vpn.sh off brings the filter back"
-  [[ $app == tailscale ]] && note "Tailscale: Exit node > Allow LAN access must be on, or adb loses the TV"
-  if [[ $DRY_RUN == 0 ]]; then confirm "Switch $SERIAL to $app?" || die "cancelled"; fi
+  note "the home screen asks WireGuard for '$tunnel' at every boot, once the internet is connected"
+  note "nothing is always-on: switching it off in WireGuard (or using Tailscale) sticks until the next boot"
+  [[ $DNSFILTER == 1 ]] && note "the on-TV filter ($FILTER) pauses; ./opentelv/vpn.sh off brings it back"
+  if [[ $DRY_RUN == 0 ]]; then confirm "Bring '$tunnel' up on $SERIAL now and at every boot?" || die "cancelled"; fi
   # Pre-granting the app-op skips the VPN consent box, which the remote cannot press.
-  acmd appops set "$pkg" ACTIVATE_VPN allow >/dev/null
-  acmd settings put secure always_on_vpn_app "$pkg" >/dev/null
-  acmd settings put secure always_on_vpn_lockdown 0 >/dev/null
-  # Disabling the filter app revokes its VPN, which frees the slot.
-  acmd pm disable-user --user 0 "$FILTER" >/dev/null
-  acmd monkey -p "$pkg" -c android.intent.category.LEANBACK_LAUNCHER 1 >/dev/null
-  [[ $DRY_RUN == 1 ]] && exit 0
-  adb_reconnect
+  acmd appops set "$WG" ACTIVATE_VPN allow >/dev/null
+  # Lets WireGuard start its tunnel service from the background at boot.
+  acmd dumpsys deviceidle whitelist +"$WG" >/dev/null
+  acmd pm grant "$HOME_PKG" "$WG.permission.CONTROL_TUNNELS" >/dev/null
+  free_slot
+  if [[ $DRY_RUN == 1 ]]; then note "[dry-run] home screen: '$tunnel' at boot, and now"; exit 0; fi
+  state=$(home_vpn --es tunnel "$tunnel" --ez now true)
+  [[ $state == *control=granted* ]] || die "Fire OS refused WireGuard's CONTROL_TUNNELS for the home screen ($state)"
   step "now"
-  note "always-on VPN: $(dev1 settings get secure always_on_vpn_app)"
-  note "connect $app on the TV (scrcpy) if it is not connected yet"
-  note "back to the default: ./opentelv/vpn.sh off"
+  note "waiting for the tunnel (up to a minute)"
+  up=""
+  for _ in $(seq 1 12); do
+    sleep 5
+    adb_reconnect
+    up=$(tun_up); [[ -n $up ]] && break
+  done
+  if [[ -n $up ]]; then
+    note "tunnel up ($up); it comes back at every boot"
+  else
+    note "no tunnel yet. One-time step on the TV (scrcpy or the remote):"
+    note "  WireGuard > Settings (gear / three dots) > Allow remote control apps: on"
+    note "  then run ./opentelv/vpn.sh on again"
+  fi
+  note "if WireGuard's own Settings > Restore on boot is on, switch it off: it starts before the internet is connected"
+  note "back to no VPN: ./opentelv/vpn.sh off"
   ;;
 
 off)
   need_device
   step "plan"
-  note "back to the on-TV filter: $FILTER holds the VPN slot again"
-  if [[ $DRY_RUN == 0 ]]; then confirm "Switch $SERIAL back to the on-TV filter?" || die "cancelled"; fi
-  acmd pm enable --user 0 "$FILTER" >/dev/null
-  acmd appops set "$FILTER" ACTIVATE_VPN allow >/dev/null
-  acmd settings put secure always_on_vpn_app "$FILTER" >/dev/null
-  acmd am start -n "$FILTER/.DNSProxyActivity" >/dev/null
+  note "no tunnel at boot; nothing always-on"
+  [[ $DNSFILTER == 1 ]] && note "the on-TV filter ($FILTER) takes the VPN slot again"
+  note "a tunnel that is on now stays on until you switch it off in WireGuard (or reboot)"
+  if [[ $DRY_RUN == 0 ]]; then confirm "Turn VPN mode off on $SERIAL?" || die "cancelled"; fi
+  if home_has_vpn; then
+    [[ $DRY_RUN == 1 ]] && note "[dry-run] home screen: no tunnel at boot" || home_vpn --es tunnel "''" >/dev/null
+  fi
+  acmd dumpsys deviceidle whitelist -"$WG" >/dev/null 2>&1
+  acmd settings delete secure always_on_vpn_app >/dev/null 2>&1
+  acmd settings delete secure always_on_vpn_lockdown >/dev/null 2>&1
+  if [[ $DNSFILTER == 1 ]] && present "$FILTER"; then
+    acmd pm enable --user 0 "$FILTER" >/dev/null
+    acmd appops set "$FILTER" ACTIVATE_VPN allow >/dev/null
+    acmd settings put secure always_on_vpn_app "$FILTER" >/dev/null
+    acmd am start -n "$FILTER/.DNSProxyActivity" >/dev/null
+  fi
   [[ $DRY_RUN == 1 ]] && exit 0
   adb_reconnect
   note "always-on VPN: $(dev1 settings get secure always_on_vpn_app)"
-  note "the filter takes the slot from Tailscale/WireGuard; then: ./scripts/verify.sh"
+  [[ $DNSFILTER == 1 ]] && note "the filter has the slot again; then: ./scripts/verify.sh"
+  ;;
+
+status)
+  need_device
+  step "vpn"
+  aon=$(dev1 settings get secure always_on_vpn_app); [[ $aon == null ]] && aon=""
+  note "always-on app:  ${aon:-none}${aon:+ (holds the slot: other VPN apps are refused)}"
+  if home_has_vpn; then
+    b=$(boot_tunnel); note "at boot:        ${b:-nothing}${b:+ (WireGuard, once the internet is connected)}"
+  else
+    note "at boot:        nothing (the home screen has no boot tunnel: ./opentelv/home.sh)"
+  fi
+  up=$(tun_up); note "tunnel now:     ${up:-none}"
   ;;
 
 check)
@@ -114,7 +202,7 @@ check)
   ;;
 
 *)
-  sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 1
   ;;
 esac

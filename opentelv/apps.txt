@@ -19,8 +19,8 @@
 #                     bumping the pin in apps.sh and running it again.
 #
 # VPN apps (tailscale, wireguard) and the dumbtv DNS filter share Android's one VPN
-# slot. ./opentelv/vpn.sh on <app> hands the slot to the VPN (DNS blocking pauses);
-# ./opentelv/vpn.sh off hands it back. See opentelv/README.md.
+# slot. ./opentelv/vpn.sh on [tunnel] brings a WireGuard tunnel up at boot,
+# on tailscale frees the slot for Tailscale; ./opentelv/vpn.sh off undoes either. See opentelv/README.md.
 
 netflix     com.netflix.ninja                    appstore   Netflix
 disneyplus  com.disney.disneyplus                appstore   Disney+

@@ -179,6 +179,7 @@ public final class Home extends Activity {
         f.addDataScheme("package");
         registerReceiver(packages, f);
         Keeper.start(this);
+        Vpn.boot(this); // OpenTelV: the WireGuard tunnel, once the network is up
         if (tv != null) tv.registerCallback(inputWatch, ui);
         firstApps(catalog);
         loadInputs();

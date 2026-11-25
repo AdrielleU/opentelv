@@ -303,7 +303,7 @@ for k in "${keys[@]}"; do
     wholphin)  note "Wholphin: the Appstore build has no Seerr integration (GitHub/Play builds only)" ;;
     moonlight) note "Moonlight: pair with Sunshine on your PC; on the home network no VPN is needed" ;;
     tailscale|wireguard)
-      note "$(title "$k"): set it up, then ./opentelv/vpn.sh on $k"
+      note "$(title "$k"): set it up, then ./opentelv/vpn.sh on $( [[ $k == wireguard ]] && echo "<tunnel>" || echo tailscale)"
       [[ $k == wireguard ]] && note "  import a tunnel: ./opentelv/wg-import.sh <tunnel.conf> (needs: apps.sh files)"
       note "  Tailscale: turn on Exit node > Allow LAN access BEFORE picking the exit node,"
       note "  or adb, scrcpy, RustDesk by IP and Moonlight at home all lose the TV" ;;
