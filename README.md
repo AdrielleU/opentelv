@@ -45,67 +45,176 @@ and making that setup repeatable on the next TV.
 ## Quick start
 
 You need a computer with [`adb`](https://developer.android.com/tools/releases/platform-tools),
-`bash` and `curl` (macOS, Linux, or Windows with WSL), on the same network as the TV.
+`bash`, `git` and `curl` (macOS, Linux, or Windows with WSL), on the same network as the TV.
 
-**1. Turn on ADB on the TV.** Settings → My Fire TV → About, press OK on the device
-name 7 times, then Settings → My Fire TV → Developer Options → ADB debugging. The IP
-address is under Settings → My Fire TV → About → Network.
+Every block below is meant to be copied into your terminal as it is. Step 0 asks for
+the one thing it needs, your TV's address.
 
-**2. Connect and look first** (changes nothing; saves a snapshot for undo):
+### 0. Every time you open a terminal
+
+On the TV, the first time only: **Settings › My Fire TV › About**, press OK on the
+device name 7 times, then **Settings › My Fire TV › Developer Options › ADB
+debugging: ON**. The TV's address is under **Settings › My Fire TV › About › Network**.
+
+The first time only, get a copy of OpenTelV and go into it:
 
 ```sh
-git clone https://github.com/AdrielleU/opentelv && cd opentelv
-adb connect <tv-ip>:5555        # press Allow on the TV, tick Always allow
-./scripts/preflight.sh
+git clone https://github.com/AdrielleU/opentelv
+cd opentelv
 ```
 
-Keep the `report/` folder it creates: `restore.sh` uses it to put your exact
-settings back.
-
-**3. Clean up** (dumbtv's pass; asks before each step, reboots the TV twice):
+Then, in the `opentelv` folder, every time:
 
 ```sh
-./scripts/configure.sh          # Prime Video? Alexa? DNS filter? SmartTube?
-./scripts/all.sh
-./scripts/verify.sh
+printf "TV address: "; read -r TV
+git pull
+mkdir -p report
+LOG="report/opentelv-$(date +%Y%m%d-%H%M).log"
+adb connect "$TV:5555"
+adb devices
 ```
 
-On Fire OS 8 the DNS filter needs one setting made in its own app; `all.sh` prints
-the steps, and [scrcpy](https://github.com/Genymobile/scrcpy) makes them easy
-(details in [opentelv/README.md](opentelv/README.md)).
+The last line must end in `device`. `unauthorized` means the TV is asking "Allow USB
+debugging?": press **Allow** (tick **Always allow**) and run `adb devices` again.
 
-**4. Set it up** (OpenTelV):
+Each command below ends in `2>&1 | tee -a "$LOG"`: you see everything as usual, and
+the same output is saved in the log (see [If something goes wrong](#if-something-goes-wrong)).
+
+### A. A new Fire TV
+
+**A1. Look first** (changes nothing; saves a snapshot that undo uses):
 
 ```sh
-./opentelv/setup.sh                         # home screen, default apps, YouTube button → SmartTube
-./opentelv/setup.sh --vpn home.conf         # the same, plus WireGuard tunnel "home" at every boot
+./scripts/preflight.sh 2>&1 | tee -a "$LOG"
 ```
 
-It runs these, which also work one at a time:
+**A2. Choose what to keep** (Prime Video? Alexa? DNS filter? SmartTube?):
 
 ```sh
-./opentelv/home.sh                          # OpenTelV's home screen
-./opentelv/apps.sh                          # the default apps
+./scripts/configure.sh 2>&1 | tee -a "$LOG"
+```
+
+**A3. Clean up** (asks before each step, reboots the TV twice, about 5 minutes):
+
+```sh
+./scripts/all.sh 2>&1 | tee -a "$LOG"
+```
+
+**A4. Home screen, apps and the YouTube button:**
+
+```sh
+./opentelv/setup.sh 2>&1 | tee -a "$LOG"
+```
+
+With a WireGuard tunnel at every boot instead (copy your tunnel file, here
+`home.conf`, into the folder you are in first; the tunnel takes the file's name):
+
+```sh
+./opentelv/setup.sh --vpn home.conf 2>&1 | tee -a "$LOG"
+```
+
+While WireGuard is open for the import, switch on **WireGuard › Settings › Allow
+remote control apps** with the remote (once).
+
+**A5. Check and back up:**
+
+```sh
+./scripts/verify.sh 2>&1 | tee -a "$LOG"
+./opentelv/backup.sh 2>&1 | tee -a "$LOG"
+```
+
+**A6. A TV that had OpenTelV before** (after a factory reset, or a replacement), put
+your settings and remote buttons back from a backup:
+
+```sh
+./opentelv/backup.sh list
+./opentelv/backup.sh restore 2>&1 | tee -a "$LOG"
+```
+
+### B. A TV that is already set up
+
+**B1. Get the latest home screen** (your settings carry over):
+
+```sh
+./opentelv/home.sh 2>&1 | tee -a "$LOG"
+```
+
+**B2. Back up your settings and remote buttons:**
+
+```sh
+./opentelv/backup.sh 2>&1 | tee -a "$LOG"
+```
+
+**B3. WireGuard at every boot** (replace `home` with the tunnel's name in WireGuard):
+
+```sh
+./opentelv/vpn.sh on home 2>&1 | tee -a "$LOG"
+./opentelv/vpn.sh status 2>&1 | tee -a "$LOG"
+```
+
+Switch to Tailscale, or no VPN at boot:
+
+```sh
+./opentelv/vpn.sh on tailscale 2>&1 | tee -a "$LOG"
+./opentelv/vpn.sh off 2>&1 | tee -a "$LOG"
+```
+
+**B4. Install a Fire OS update** (backs up, you press Install on the TV, then
+OpenTelV goes back on by itself; up to 90 minutes):
+
+```sh
+./opentelv/update.sh 2>&1 | tee -a "$LOG"
+```
+
+If the TV updated but the script had stopped waiting:
+
+```sh
+./opentelv/update.sh --after 2>&1 | tee -a "$LOG"
+```
+
+**B5. Check:**
+
+```sh
+./scripts/verify.sh 2>&1 | tee -a "$LOG"
+```
+
+### If something goes wrong
+
+The log of this terminal session is in `report/`:
+
+```sh
+echo "$LOG"
+tail -50 "$LOG"
+```
+
+For what the TV itself was doing, save its log too:
+
+```sh
+adb logcat -d > "report/tv-$(date +%Y%m%d-%H%M).log"
+```
+
+Most commands take `--dry-run` to show what they would do without changing anything.
+`report/` and `backups/` are git-ignored: they hold your TV's address and serial, so
+check a log before posting it anywhere. [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+covers the known problems.
+
+### One step at a time
+
+`setup.sh` runs these, which also work alone:
+
+```sh
+./opentelv/home.sh                             # OpenTelV's home screen
+./opentelv/apps.sh                             # the default apps (--list, --choose)
 ./opentelv/buttons.sh map --tag r_btn_app_33   # YouTube button → SmartTube
-./opentelv/wg-import.sh home.conf           # import a WireGuard tunnel
-./opentelv/vpn.sh on home                   # tunnel "home" at every boot, once the internet is connected
+./opentelv/wg-import.sh home.conf              # import a WireGuard tunnel
+./opentelv/vpn.sh on home                      # tunnel "home" at every boot
 ```
 
 The default apps are Netflix, Disney+, HBO Max, Crunchyroll, Spotify, Wholphin,
 Moonlight, Tailscale, WireGuard, Material Files and RustDesk (work in progress, see
-below). `./opentelv/apps.sh --list` shows them, `--choose` asks about each.
-
-For the VPN, switch on **WireGuard › Settings › Allow remote control apps** once on
-the TV. `./opentelv/vpn.sh status` shows what starts at boot; `./opentelv/vpn.sh off`
-stops it.
-
-## Updates and backups
-
-```sh
-./opentelv/update.sh                # install a Fire OS update, then OpenTelV goes back on by itself
-./opentelv/backup.sh                # save your settings and remote button mappings
-./opentelv/backup.sh restore        # put them back, on this TV or a new one
-```
+below). On Fire OS 8 the DNS filter (if you turn it on) needs one setting in its own
+app; `all.sh` prints the steps, and [scrcpy](https://github.com/Genymobile/scrcpy)
+makes them easy (details in [opentelv/README.md](opentelv/README.md)).
 
 ## Undo
 
