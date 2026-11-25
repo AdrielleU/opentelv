@@ -102,11 +102,47 @@ or turn Tailscale on in its app, and that sticks until the next boot.
 
 The tunnel name is the one WireGuard shows; `on` alone reuses the last one. It needs
 OpenTelV's home screen from November 2026 or later (`./opentelv/home.sh`), and one
-setting on the TV, once: **WireGuard › Settings › Allow remote control apps**. In the
-tunnel itself (pencil icon) tick **Exclude private IPs**: otherwise it carries your home
-network too, and adb, scrcpy and the Fire TV remote app lose the TV while it is on
-(`vpn.sh on` stops and says so).
-Leave WireGuard's own **Restore on boot** off: it starts before the internet is connected.
+setting on the TV, once: **WireGuard › Settings › Allow remote control apps**. The
+tunnel's `AllowedIPs` must leave your home network out (see the next section), or adb,
+scrcpy and the Fire TV remote app lose the TV while it is on (`vpn.sh on` stops and
+says so). Leave WireGuard's own **Restore on boot** off: it starts before the internet
+is connected.
+
+### WireGuard config: exit node with LAN access
+
+What Tailscale calls an exit node with **Allow LAN access** is, in a WireGuard config,
+one line: `AllowedIPs` under `[Peer]`. It lists what goes **into** the tunnel, not what
+is allowed to stay out of it.
+
+| `AllowedIPs` | Internet through the VPN | Home network | Remote app, adb |
+|---|---|---|---|
+| `0.0.0.0/0` | yes | through the VPN too | **broken**: the TV's answers to your phone go into the tunnel |
+| `0.0.0.0/0` plus your home network | yes | through the VPN too | **broken**, the same: listing a range sends it in |
+| WireGuard's **Exclude private IPs** box | yes | local | work, but every private range is left out, the VPN's own subnet too, so a DNS server or anything else inside the VPN is unreachable |
+| **every public range, plus the private ranges you name** | yes | local | work |
+
+The last row is the one to use. [`wireguard-example.conf`](wireguard-example.conf) has
+the whole file with that line already written out: every public IPv4 range, with the
+private ranges (`10/8`, `172.16/12`, `192.168/16`), link-local and multicast left out.
+Then:
+
+1. Copy it to `<name>.conf` (the name becomes the tunnel's name, 15 characters at
+   most) and fill in the `<...>` values from your server.
+2. At the end of `AllowedIPs`, add each private range that should go through the VPN,
+   one by one, as `/24`: your VPN's own subnet first (the server, and DNS if it lives
+   there), then any other network behind the VPN.
+3. Never add `0.0.0.0/0` or your home network.
+4. DNS is Quad9 (`9.9.9.9`, `149.112.112.112`): public addresses, so it goes through
+   the tunnel with the rest.
+5. Import it: in WireGuard on the TV delete the old tunnel of that name, then
+   `./opentelv/wg-import.sh <name>.conf` and `./opentelv/vpn.sh on <name>`.
+
+The exit node itself is the server's job, not this line: IP forwarding plus NAT
+(masquerade) on the server. The server's `[Peer]` for the TV normally lists just the
+TV's tunnel address as `/32`. Nothing on the server changes for LAN access.
+
+IPv6 is left out (`::/0` is not in the line), so IPv6 traffic, if your network has it,
+does not go through the VPN.
 
 | | Default | VPN mode |
 |---|---|---|

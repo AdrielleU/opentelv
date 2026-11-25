@@ -94,11 +94,11 @@ alive() { [[ $(limited 10 "$ADB" -s "$SERIAL" shell echo ok 2>/dev/null </dev/nu
 # adb lost the TV as the tunnel came up: exit 3, so update.sh can stop cleanly.
 lan_lost() {
   note "adb lost the TV as '$1' came up. The tunnel carries all traffic, your home network"
-  note "too (AllowedIPs = 0.0.0.0/0), so this computer, and the Fire TV remote app, cannot"
-  note "reach the TV while it is on. Fix it once, on the TV with the remote:"
-  note "  WireGuard > $1 > pencil (edit) > tick Exclude private IPs > save"
-  note "then: adb connect <tv-ip>:5555 and ./opentelv/vpn.sh status"
-  note "the tunnel at boot is already set; nothing else to run"
+  note "too (0.0.0.0/0, or the home network, in AllowedIPs), so this computer and the remote app cannot"
+  note "reach the TV while it is on. Fix it once:"
+  note "  switch '$1' off in WireGuard, set its AllowedIPs as in opentelv/wireguard-example.conf"
+  note "  (no 0.0.0.0/0, no home network), delete it, wg-import.sh it again"
+  note "then: adb connect <tv-ip>:5555 and ./opentelv/vpn.sh on $1"
   exit 3
 }
 
@@ -159,7 +159,7 @@ on)
   step "plan"
   note "the home screen asks WireGuard for '$tunnel' at every boot, once the internet is connected"
   note "nothing is always-on: switching it off in WireGuard (or using Tailscale) sticks until the next boot"
-  note "the tunnel needs Exclude private IPs ticked (WireGuard > $tunnel > pencil), or adb and the remote app lose the TV"
+  note "its AllowedIPs must leave the home network out (opentelv/wireguard-example.conf), or adb and the remote app lose the TV"
   [[ $DNSFILTER == 1 ]] && note "the on-TV filter ($FILTER) pauses; ./opentelv/vpn.sh off brings it back"
   if [[ $DRY_RUN == 0 ]]; then confirm "Bring '$tunnel' up on $SERIAL now and at every boot?" || die "cancelled"; fi
   # Pre-granting the app-op skips the VPN consent box, which the remote cannot press.
