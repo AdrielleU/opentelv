@@ -70,6 +70,16 @@ tun_up() {
   [[ -n $name ]] && echo "$name"
 }
 
+# Which app's VPN is running: Android names every VPN app's interface tunN, whatever the
+# tunnel is called inside the app, so the interface name cannot tell.
+vpn_owner() {
+  local s
+  s=$(dev "dumpsys activity services $WG" | tr -d '\r')
+  grep -q 'VpnService' <<<"$s" && { echo WireGuard; return; }
+  s=$(dev "dumpsys activity services $TS" | tr -d '\r')
+  grep -qE 'IPNService|VpnService' <<<"$s" && echo Tailscale
+}
+
 # A command with a time limit. A tunnel that takes the home network leaves a network adb
 # session hanging rather than refused, so waiting on it must give up. timeout(1) is GNU;
 # macOS without coreutils runs the command unlimited.
@@ -176,7 +186,8 @@ on)
     up=$(tun_up); [[ -n $up ]] && break
   done
   if [[ -n $up ]]; then
-    note "tunnel up ($up); it comes back at every boot"
+    who=$(vpn_owner)
+    note "tunnel up: $up${who:+ ($who)}; '$tunnel' comes back at every boot"
   else
     note "no tunnel yet. One-time step on the TV (scrcpy or the remote):"
     note "  WireGuard > Settings (gear / three dots) > Allow remote control apps: on"
@@ -221,7 +232,9 @@ status)
   else
     note "at boot:        nothing (the home screen has no boot tunnel: ./opentelv/home.sh)"
   fi
-  up=$(tun_up); note "tunnel now:     ${up:-none}"
+  up=$(tun_up); [[ -n $up ]] && who=$(vpn_owner) || who=""
+  note "tunnel now:     ${up:-none}${who:+ ($who)}"
+  [[ -n $up ]] && note "                (Android calls every VPN app's interface tunN; the name in the app differs)"
   if [[ $DEBUG == 1 ]]; then
     step "raw (--debug)"
     dev 'dumpsys connectivity' | tr -d '\r' | grep 'NetworkAgentInfo' | cut -c1-300
