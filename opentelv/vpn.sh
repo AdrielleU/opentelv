@@ -9,7 +9,7 @@
 #   ./opentelv/vpn.sh on tailscale       no tunnel at boot; switch Tailscale on in its app
 #   ./opentelv/vpn.sh off                no VPN at boot; the DNS filter takes the slot back
 #                                        if dumbtv.conf turns it on
-#   ./opentelv/vpn.sh status             what holds the slot, what starts at boot
+#   ./opentelv/vpn.sh status [--debug]   what holds the slot, what starts at boot, what is up
 #   ./opentelv/vpn.sh check              are the Amazon hosts blocked right now?
 #   ./opentelv/vpn.sh blocklist          optional: the OpenTelV list for a DNS server
 #                                        (AdGuard Home, Pi-hole) behind the VPN
@@ -36,7 +36,9 @@ if [[ $cmd == on ]]; then
     case ${1:-} in -*|"") ;; *) tunnel=$1; shift ;; esac
   fi
 fi
-parse_flags "$@"
+DEBUG=0; rest=()
+for a in "$@"; do [[ $a == --debug ]] && DEBUG=1 || rest+=("$a"); done
+parse_flags "${rest[@]+"${rest[@]}"}"
 load_conf
 
 # The home screen's boot-tunnel receiver (opentelv/home.sh 2026-11 or later).
@@ -52,7 +54,21 @@ home_vpn() {
   dev "am broadcast -n $HOME_PKG/.Vpn\\\$Set $*" | tr -d '\r' | sed -n 's/.*data="\(.*\)".*/\1/p'
 }
 boot_tunnel() { home_vpn | sed -n 's/^tunnel=\([^ ]*\).*/\1/p'; }
-tun_up() { dev 'ip -o link show' | grep -oE ': tun[0-9]+' | head -1 | tr -d ': '; }
+# Is a VPN up now? Prints what shows it, or nothing. Android's own list of networks
+# first (any VPN app, whatever its interface is called), then the tunN interface, from
+# whichever of ip / ifconfig this Fire OS lets adb read.
+tun_up() {
+  local out name
+  out=$(dev 'dumpsys connectivity' | tr -d '\r' | grep 'NetworkAgentInfo' |
+    grep -E 'ni\{VPN|Transports: VPN' | grep -v 'DISCONNECTED' | head -1)
+  if [[ -n $out ]]; then
+    name=$(grep -oE 'InterfaceName: [A-Za-z0-9_.-]+|iface: ?[A-Za-z0-9_.-]+' <<<"$out" | head -1 | sed 's/.*: *//')
+    echo "VPN network${name:+ on $name}"; return
+  fi
+  out=$(dev 'ip -o link show 2>/dev/null; ip addr show 2>/dev/null; ifconfig 2>/dev/null' | tr -d '\r')
+  name=$(grep -oE '(^|[: ])tun[0-9]+' <<<"$out" | head -1 | tr -d ': ')
+  [[ -n $name ]] && echo "$name"
+}
 
 # Nobody keeps the VPN slot: no always-on app, and the filter (if any) stopped.
 free_slot() {
@@ -177,6 +193,12 @@ status)
     note "at boot:        nothing (the home screen has no boot tunnel: ./opentelv/home.sh)"
   fi
   up=$(tun_up); note "tunnel now:     ${up:-none}"
+  if [[ $DEBUG == 1 ]]; then
+    step "raw (--debug)"
+    dev 'dumpsys connectivity' | tr -d '\r' | grep 'NetworkAgentInfo' | cut -c1-300
+    dev 'ip -o link show 2>&1; ifconfig 2>&1' | tr -d '\r' | grep -iE 'tun|wg|denied|not found' || note "no tun/wg interface visible to adb"
+    dev 'dumpsys package com.wireguard.android' | tr -d '\r' | grep -m1 versionName || note "WireGuard version not found"
+  fi
   ;;
 
 check)
