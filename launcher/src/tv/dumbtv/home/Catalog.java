@@ -5,10 +5,13 @@ import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.content.res.Resources;
+import android.graphics.drawable.Drawable;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
 import android.text.TextUtils;
+import android.util.DisplayMetrics;
 
 import java.text.Collator;
 import java.util.ArrayList;
@@ -19,9 +22,15 @@ import java.util.Map;
 
 /** Where tiles come from, and which of them the user wants on the home screen. */
 final class Catalog {
-    static final String APPS = "apps", INPUTS = "inputs";
+    static final String APPS = "apps", ALL_APPS = "allapps", INPUTS = "inputs";
+    static final String LIVE_TV = "com.amazon.tv.livetv";
+    private static final String CHANNEL = "vnd.android.cursor.item/channel";
 
     private Catalog() {}
+
+    static boolean isApp(String kind) {
+        return APPS.equals(kind) || ALL_APPS.equals(kind);
+    }
 
     /** Every launchable app, TV apps first; drawables are left for {@link #art}. */
     static List<Item> apps(Context c) {
@@ -50,15 +59,48 @@ final class Catalog {
         }
     }
 
-    /** Loads a banner, or an icon when the app ships no banner. Slow: call off the UI thread. */
-    static void art(PackageManager pm, Item it) {
+    /**
+     * Loads a banner, plus an icon for Afterglow or when there is no banner. A {@code replacement}
+     * (an icon picked for the app, or the icon pack's match) is used instead of the app's own
+     * art: a wide one fills the tile like a banner, any other is drawn as a centered icon.
+     * Slow: off the UI thread.
+     */
+    static void art(Context c, Item it, boolean cornerIcon, Drawable replacement) {
         if (it.info == null) return;
-        it.banner = it.info.loadBanner(pm);
-        if (it.banner == null) it.icon = it.info.loadIcon(pm);
+        PackageManager pm = c.getPackageManager();
+        boolean wide = replacement != null && isWide(replacement);
+        it.banner = wide ? replacement : replacement == null ? it.info.loadBanner(pm) : null;
+        it.icon = replacement != null && !wide ? replacement
+                : it.banner == null || cornerIcon ? sharpIcon(c, it.info) : null;
     }
 
     /**
-     * HDMI, AV and other passthrough inputs; HDMI first in port order. The intent is the TV's own
+     * The app's icon at the highest density it ships rather than the TV's own (xhdpi on a 1080p
+     * Fire TV): tiles draw icons larger than a launcher grid would, and the xhdpi bitmap blurs
+     * when it is scaled up.
+     */
+    static Drawable sharpIcon(Context c, ActivityInfo ai) {
+        int res = ai.getIconResource();
+        if (res != 0) {
+            try {
+                Drawable d = c.getPackageManager().getResourcesForApplication(ai.applicationInfo)
+                        .getDrawableForDensity(res, DisplayMetrics.DENSITY_XXXHIGH, null);
+                if (d != null) return d;
+            } catch (PackageManager.NameNotFoundException | Resources.NotFoundException e) {
+                // fall through to the system's choice
+            }
+        }
+        return ai.loadIcon(c.getPackageManager());
+    }
+
+    /** TV banners are 16:9; anything clearly wider than tall is drawn across the whole tile. */
+    static boolean isWide(Drawable d) {
+        return d.getIntrinsicWidth() * 3 > d.getIntrinsicHeight() * 4;
+    }
+
+    /**
+     * HDMI, AV and other passthrough inputs; HDMI first in port order, then Live TV when the TV
+     * has a tuner. The intent is the TV's own
      * app for the input; {@link Input#intent} decides whether a tile opens that or the built-in
      * screen.
      */
@@ -66,7 +108,9 @@ final class Catalog {
         List<Item> out = new ArrayList<>();
         if (tv == null) return out;
         List<Item> other = new ArrayList<>();
+        Item live = null;
         for (TvInputInfo in : tv.getTvInputList()) {
+            if (live == null && isTuner(in) && !in.isHidden(c)) live = liveTv(c, in.getId());
             if (!in.isPassthroughInput() || in.isHidden(c)) continue;
             CharSequence label = in.loadCustomLabel(c);
             if (TextUtils.isEmpty(label)) label = in.loadLabel(c);
@@ -80,7 +124,30 @@ final class Catalog {
         Collections.sort(out, (a, b) -> collator.compare(a.label.toString(), b.label.toString()));
         Collections.sort(other, (a, b) -> collator.compare(a.label.toString(), b.label.toString()));
         out.addAll(other);
+        if (live != null) out.add(live);
         return out;
+    }
+
+    /** Apps' own inputs (Prime Video's, VLC's preview) report TYPE_TUNER too; only hardware has /HW. */
+    private static boolean isTuner(TvInputInfo in) {
+        return in.getType() == TvInputInfo.TYPE_TUNER && in.getId().matches(".*/HW\\d+");
+    }
+
+    /**
+     * A channel that does not exist opens Live TV's player on the last channel, or its channel scan
+     * when there is none, without the permissions its tune and guide actions need (#199).
+     */
+    private static Item liveTv(Context c, String tunerId) {
+        Intent view = new Intent(Intent.ACTION_VIEW)
+                .setDataAndType(TvContract.buildChannelUri(Integer.MAX_VALUE), CHANNEL)
+                .setPackage(LIVE_TV);
+        PackageManager pm = c.getPackageManager();
+        ResolveInfo app = pm.resolveActivity(view, 0);
+        return app == null ? null : new Item(tunerId, app.loadLabel(pm), view);
+    }
+
+    static boolean isLiveTv(Item it) {
+        return CHANNEL.equals(it.intent.getType());
     }
 
     static CharSequence label(Config cfg, Item it) {
@@ -107,12 +174,29 @@ final class Catalog {
 
     /** The shown items, in the user's order; anything never moved keeps catalog order. */
     static List<Item> visible(Config cfg, String kind, List<Item> all) {
+        return visible(cfg, kind, all, null);
+    }
+
+    /** As above, then newest first by {@code recent} (package to last-used time) when it is set. */
+    static List<Item> visible(Config cfg, String kind, List<Item> all, Map<String, Long> recent) {
+        // Pinning, hiding and recent use only affect the pinned section. Child lock keeps apps
+        // hidden there out of reach on this screen. Sort the full list by its displayed names.
+        if (ALL_APPS.equals(kind)) {
+            List<Item> out = new ArrayList<>();
+            if (!"on".equals(cfg.get(Config.ALL_APPS)) || "on".equals(cfg.get(Config.LOCK))) return out;
+            out.addAll(all);
+            Collator collator = Collator.getInstance();
+            Collections.sort(out, (a, b) -> collator.compare(label(cfg, a).toString(), label(cfg, b).toString()));
+            return out;
+        }
         List<String> order = cfg.list(kind + ".order");
         List<Item> out = new ArrayList<>();
         for (Item it : all) {
             if (shown(cfg, kind, it)) out.add(it);
         }
         Collections.sort(out, (a, b) -> Integer.compare(rank(order, a.id), rank(order, b.id)));
+        // The sort is stable, so apps with no record keep the user's order after the rest.
+        if (recent != null) Collections.sort(out, (a, b) -> Recent.compare(recent, a.id, b.id));
         return out;
     }
 

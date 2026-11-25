@@ -15,7 +15,7 @@ STEPS = ["preflight", "debloat", "lockdown", "dnsfilter", "launcher"]
 
 
 class AllTest(unittest.TestCase):
-    def run_all(self, config=None, answer="0", flags=(), inherited_youtube=None):
+    def run_all(self, config=None, answer="0", flags=(), inherited_youtube=None, conf_env=None):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / "repo with spaces"
             scripts = repo / "scripts"
@@ -40,6 +40,11 @@ fi
             log = repo / "steps.log"
             env = dict(os.environ, STEP_LOG=str(log), CONFIG_ANSWER=answer)
             env.pop("YOUTUBE", None)
+            env.pop("CONF", None)
+            if conf_env is not None:
+                conf = Path(tmp) / "elsewhere.conf"
+                conf.write_text(conf_env)
+                env["CONF"] = str(conf)
             if inherited_youtube is not None:
                 env["YOUTUBE"] = inherited_youtube
             result = subprocess.run(
@@ -56,6 +61,10 @@ fi
     def test_saved_no_overrides_inherited_yes(self):
         steps = self.run_all(config="YOUTUBE=0\n", inherited_youtube="1")
         self.assertEqual(steps, [[name] for name in STEPS + ["verify"]])
+
+    def test_conf_from_the_environment_is_the_one_read(self):
+        steps = self.run_all(conf_env="YOUTUBE=1\n")
+        self.assertEqual(steps, [[name] for name in STEPS + ["youtube", "verify"]])
 
     def test_older_config_defaults_to_no(self):
         steps = self.run_all(config="PRIME=1\n")

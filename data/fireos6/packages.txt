@@ -15,7 +15,6 @@ com.amazon.privacypassservice          # ad-token service
 com.amazon.shoptv.client               # shopping on the TV
 com.amazon.shoptv.firetv.client        # second shopping client
 com.amazon.sneakpeek                   # autoplaying promos
-com.amazon.tahoe                       # ad and content tiles on Amazon's home
 com.amazon.systemnotices               # Amazon promo notices
 com.amazon.tv.website_launcher         # promo web pages
 com.amznfuse.operatorredirection       # fire os 6: telco partner redirection
@@ -32,7 +31,6 @@ com.amazon.logan
 com.amazon.ceviche                     # analytics pipeline
 com.amazon.connectivitydiag
 com.amazon.tigris
-com.amazon.spiderpork                  # metrics transport (listed as a third-party app on fire os 6)
 com.amazon.tv.developer.dataservice
 com.amazon.wifilocker                  # fire os 6: uploads saved Wi-Fi passwords to Amazon
 
@@ -49,7 +47,6 @@ com.amazon.whisperjoin.wss.wifiprovisioner  # fire os 6: hands Wi-Fi to new Amaz
 com.amazon.tv.ffsprovisioneeclient     # fire os 6: frustration-free setup client
 
 # --- demos, tutorials, test services and empty stubs ---
-com.amazon.storm.lightning.tutorial
 com.amazon.tmm.tutorial
 com.amazon.tv.releasenotes
 com.mediatek.atci.service              # fire os 6: MediaTek AT-command test service

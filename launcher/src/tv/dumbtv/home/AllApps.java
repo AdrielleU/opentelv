@@ -97,7 +97,7 @@ public final class AllApps extends Activity {
 
     private void loadArt(Item it, Tile t) {
         new Thread(() -> {
-            Catalog.art(getPackageManager(), it);
+            Catalog.art(this, it, false, null);
             ui.post(t::invalidate);
         }).start();
     }

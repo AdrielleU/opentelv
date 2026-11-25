@@ -19,6 +19,6 @@ com.amazon.rtcsessioncontroller        # Alexa calling
 com.amazon.smarthomemapviewapp         # "Alexa Smart Home" dashboard
 com.amazon.spotify.mediabrowserservice # lets Alexa play Spotify
 com.amazon.wha.mediabrowserservice     # Alexa multi-room audio
-com.amazon.aria                        # Fire OS 6: Alexa visual cards
-com.amazon.whad                        # Fire OS 6: Alexa multi-room audio
-com.amazon.whasettings                 # Fire OS 6
+com.amazon.aria                        # Alexa visual cards
+com.amazon.whad                        # Alexa multi-room audio (Fire OS 6, and the Fire TV Cube on 7)
+com.amazon.whasettings                 # Fire OS 6, and the Fire TV Cube on 7

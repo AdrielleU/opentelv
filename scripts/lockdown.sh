@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Takes away background execution and background data from the packages Amazon
-# refuses to disable. Usage: ./scripts/lockdown.sh [--dry-run] [-y]
+# Takes away background execution from the packages Amazon refuses to disable, and
+# their background data on metered networks. Data Saver leaves Wi-Fi and Ethernet
+# alone, so on those the DNS filter is what stops their uploads.
+# Usage: ./scripts/lockdown.sh [--dry-run] [-y]
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 parse_flags "$@"
@@ -27,7 +29,7 @@ for p in $(list_of "$(fos protected.txt)"); do
   bg_off "$p"
   acmd am force-stop "$p" >/dev/null 2>&1
   acmd cmd netpolicy add restrict-background-blacklist "$uid" >/dev/null
-  printf '  %-46s ops off, data blocked (uid %s)\n' "$p" "$uid"
+  printf '  %-46s ops off, metered data blocked (uid %s)\n' "$p" "$uid"
 done
 
 step "verify"

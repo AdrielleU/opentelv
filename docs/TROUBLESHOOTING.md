@@ -5,7 +5,7 @@ settings, and every `FAIL` line names what is wrong. Find that symptom below.
 
 To put the TV back the way it was: `./scripts/restore.sh`.
 
-**Contents:** [Home screen](#home-screen) · [DNS filter](#dns-filter) ·
+**Contents:** [Home screen](#home-screen) · [Inputs](#inputs) · [DNS filter](#dns-filter) ·
 [Packages and apps](#packages-and-apps) · [Updates](#updates) ·
 [Fire OS 6](#fire-os-6) · [Fire OS 8](#fire-os-8) · [Testing like a remote](#testing-like-a-remote)
 
@@ -25,6 +25,21 @@ adb shell settings get secure accessibility_enabled             # 0 = off
 Run `./scripts/launcher.sh -y`. It switches the service off and on again, which is
 what makes Android bind it.
 
+On Fire OS 8 this also happens when the TV runs out of memory, for example while
+Prime Video plays HDR on a TV with 2 GB or less (#162). Android 11 kills the launcher
+along with other apps and then never binds a killed accessibility service again until
+the setting changes; Fire OS 7 binds it again by itself. The same
+`./scripts/launcher.sh -y` fixes it.
+
+### The TV wakes from standby on Amazon's home screen
+
+Going to standby, Fire OS brings Amazon's home up with the screen already off. Up to
+dumbtv home 1.9 the guard then mistook its own cover window for the user leaving
+Amazon's home, and Android held its launch back for minutes while the screen was off,
+so the TV woke on Amazon's home and stayed there until an app was opened and closed
+(#153). From 1.10 dumbtv home is back in front within a second of standby. Update with
+`./scripts/launcher.sh -y`.
+
 ### `verify.sh` says the home hook is enabled but not bound
 
 Enabled is a setting; bound means the service is actually running. `verify.sh`
@@ -36,11 +51,43 @@ On a TCL G08 the service stayed unbound because TCL's `TclAppBoot` refused it
 app-op fixed it. That is a TCL rule, not something to grant on every TV; see
 [docs/devices/tcl-g08.md](devices/tcl-g08.md).
 
+### `launcher.sh` says Fire OS did not bind the HOME guard
+
+The service was switched on and Fire OS never started it. Two causes are known:
+
+- **Parental controls.** On an AFTTI43 the guard bound once parental controls
+  were off (Settings > Preferences > Parental Controls), with nothing else changed
+  (#123). With a PIN on app launch, `launcher.sh` can also stop on Amazon's PIN
+  screen; enter the PIN and run it again.
+- **A11yAuthorizer.** Some builds run only accessibility services Amazon trusts.
+  `launcher.sh` says so when the log shows it; nothing on the adb side gets past it.
+
+On a Hisense AFTHA001 a second run bound it with nothing changed (PR #193), so
+`launcher.sh` now switches the service off and on once more before it reports this.
+
+### Amazon's Network status screen has nothing highlighted
+
+Settings > Network > your network > Network status opens with no button
+highlighted, so Advanced and Run Speed Test cannot be reached (#130). That screen
+(`com.amazon.ssmsys`) asks Android for enabled accessibility services of any kind,
+and while one is on it skips setting its first focus, assuming a screen reader.
+The HOME guard is such a service, whatever type it declares. Turn it off, open the
+screen, and turn it back on; a button that has focus keeps it:
+
+```sh
+adb shell settings put secure accessibility_enabled 0
+# open Network status on the TV now
+./scripts/launcher.sh -y
+```
+
 ### Amazon's home shows for about five seconds before dumbtv home
 
 The `min_futurity=0` alarm setting was lost (an update or a settings reset). Check
-with `adb shell settings get global alarm_manager_constants`, then run
-`./scripts/launcher.sh -y`. With it set, HOME shows about 0.3 s of black.
+with `adb shell settings get global alarm_manager_constants` (Fire OS 7 and 8), or
+`adb shell device_config get alarm_manager min_futurity` on a Fire TV built on
+Android 12 or later, then run `./scripts/launcher.sh -y`. With it set, HOME shows
+about 0.3 s of black. Fire OS 6 does not use this setting: its Keeper moves the
+home screen to the front without an alarm.
 
 ### Settings bounces back to the home screen
 
@@ -69,14 +116,67 @@ Amazon's Live TV app claims every input and then shows its settings or a channel
 scan. Set Options › Open inputs with › **Automatic** (the default from launcher
 1.2), which uses the launcher's own input screen when that happens.
 
+### "Open inputs with: The TV's app" still opens the built-in screen
+
+On some Fire TV Edition sets (confirmed on an Insignia AFTEAMR311, Fire OS 6),
+`tv` and `auto` both fall back to the launcher's own input screen no matter
+what, with no warning. This is not a bug to chase: `Input.intent()` decides
+whether to hand off by checking whether any app resolves the standard Android
+passthrough URI (`content://android.media.tv/passthrough/...`). On these sets
+Amazon's own passthrough player never registers for that URI at all — it only
+answers its own `tvinput://tunenow` scheme, gated behind the signature
+permission `com.amazon.tv.permission.TUNE_INPUT`, which a sideloaded app can
+never hold. There is nothing for the generic check to find, so it always falls
+through, however `switch` is set.
+
+Confirm with `adb shell cmd package query-activities --brief -a
+android.intent.action.VIEW -d 'content://android.media.tv/passthrough/<input
+id>'`: "No activities found" on a set like this means `tv` and `auto` cannot
+work here. Set `switch=home` to stop asking and use the built-in screen on
+purpose; `catalog/devices/` is the place to confirm a specific model.
+
+## Inputs
+
+### The TV sleeps while something is playing on HDMI
+
+The picture goes black after a few minutes and the TV behaves as if nothing is
+playing: it goes to sleep and saves energy. Fire OS counts a passthrough input
+as no activity. Nothing plays through a media session, and the window that
+shows the picture does not ask to stay awake, so the screen-off timer runs
+(300000 ms is five minutes) and the TV puts itself to sleep.
+
+dumbtv home 1.3 and later keep the panel awake while an input shows a picture,
+and let it sleep again once the input reports that there is no signal. Check
+which release is on the TV:
+
+```sh
+adb shell dumpsys package tv.dumbtv.home | grep versionName
+```
+
+An older launcher says `1.2` or lower: run `./scripts/launcher.sh -y` to
+install the current release. `verify.sh` reports the same thing.
+
+If the input reports "No signal" while something is plainly playing, the input
+service has not locked the port. On a MediaTek television that is what
+`HdmiInputService: checkVideoAvaliable: no signal` in the log means; the
+picture comes when the source wakes up.
+
+### The screen goes off after five minutes on any input
+
+That is the screen-off timeout, a TV setting: Settings > Preferences > Screen
+Saver > Screen Off. Over adb it is `settings get system screen_off_timeout`,
+in milliseconds.
+
 ## DNS filter
 
 ### Nothing is blocked, but a `tun` interface is up
 
-The filter app was force-stopped. After `am force-stop dnsfilter.android` the VPN
-comes back but DNS no longer goes through it. A reboot fixes it; restarting the app
-does not. Never force-stop it. `dnsfilter.sh` stops it once during setup and
-reboots straight after.
+The filter app was force-stopped, or its data was cleared. After
+`am force-stop dnsfilter.android` the VPN comes back but DNS no longer goes through
+it. A reboot fixes it; restarting the app does not. Never force-stop it by hand.
+`dnsfilter.sh` may stop it once during setup, before it replaces the app's files,
+and reboots straight after (or, when it ends at its manual step, tells you to); if
+that run was cut short, reboot the TV or run `./scripts/dnsfilter.sh` again.
 
 ### Nothing is blocked after a reboot
 
@@ -86,16 +186,115 @@ own boot start brings the filter up instead. `verify.sh` accepts a running `tunN
 interface in that case. The number changes between boots (`tun0`, then `tun1`).
 
 If the setting is there and a tunnel is up, yet DNS still goes around it, the
-always-on VPN and the app's own boot start are racing (seen on an AFTTI43, issue
-#58). Add `FILTER_AUTOSTART=0` to `dumbtv.conf` and run `./scripts/dnsfilter.sh`
-again. Fire OS 6 needs the app's own start, so the script ignores this setting
-there.
+filter rebuilt its VPN during the boot. Setups from before dumbtv 1.11 let
+personalDNSfilter rebuild it whenever the network's DNS servers changed, as they do
+while a TV starts, most often with Ethernet and Wi-Fi both connected. A rebuild that
+reuses the name `tun0` can leave Fire OS 7 routing the VPN's traffic through the old
+interface's routing table, which is empty. `ip rule` then names a table that
+`ip route show table all | grep tun` does not. Run `./scripts/dnsfilter.sh` again:
+it now turns that rebuild off.
+
+If it still happens, the always-on VPN and the app's own boot start are racing.
+Either can be switched off in `dumbtv.conf`, then run `./scripts/dnsfilter.sh` again:
+
+- `FILTER_ALWAYS_ON=0` leaves the start to the app's own boot receiver, so the system
+  no longer brings the VPN up early in the boot. This fixed an AFTKRT on RS8185.3898N
+  (#226). The VPN is then not restarted by Android if the app dies; dumbtv home still
+  wakes it.
+- `FILTER_AUTOSTART=0` leaves the start to the always-on VPN (an AFTTI43, issue #58).
+  Fire OS 6 needs the app's own start, so the script ignores this setting there.
+
+Not both: with both off nothing starts the filter, and the script refuses it.
+
+### Blocked hosts resolve again after an app crashed or the TV ran out of memory
+
+Android does not restart a VPN whose app was killed. When the TV runs short of
+memory it kills the filter along with other apps (#162), and from then on Amazon's
+hosts resolve normally. dumbtv home 1.8 and later start it again, without showing
+the app, whenever the home screen opens and every 15 minutes. Without dumbtv home,
+or with `FILTER_AUTOSTART=0` (the app then ignores that request), reboot the TV or
+open personalDNSfilter once:
+
+```sh
+adb shell am start -n dnsfilter.android/.DNSProxyActivity
+```
+
+Never force-stop it; see above.
+
+### Use resolvers other than the router
+
+`DNS_UPSTREAM` in `dumbtv.conf` is a space-separated list of resolver IPs, asked
+on port 53 over UDP (DNS over TLS or HTTPS is not supported). The filter still
+blocks its own list, and forwards everything else to those resolvers instead of
+the router. On Fire OS 8 it reaches the app through the `adb restore` setup or the
+typed config (see "Fire OS 8" below), not through the manual fallback.
+
+```sh
+./scripts/configure.sh --dns-upstream "76.76.2.45 76.76.10.45"
+./scripts/dnsfilter.sh
+```
+
+To go back to the router, run `./scripts/configure.sh --dns-upstream ""`, then
+`./scripts/dnsfilter.sh`. Running `configure.sh` without the flag keeps a saved
+list. A resolver that serves its own blocklist also blocks names dumbtv's list
+leaves alone, and taking a host out of `extra-hosts.txt` does not bring those
+back.
+
+### Blocked hosts resolve again a few minutes after a reboot
+
+Seen on Fire OS 6 on networks with IPv6 (an eero router, for one). Right after boot
+everything is blocked, then once the TV gets its IPv6 address `verify.sh` shows
+blocked hosts resolving to public addresses. The router handed the TV an IPv6 DNS
+server, or the TV has a second resolver in `net.dns2`, and lookups to it went
+around the tunnel. Check what the TV uses:
+
+```sh
+for p in net.dns1 net.dns2 net.dns3 net.dns4; do adb shell getprop $p; done
+```
+
+On Fire OS 6, `dnsfilter.sh` routes every server listed there into the tunnel along
+with the gateway; the plan step prints them as `also routed`. It routes what the TV
+reports while it runs, so:
+
+- Run it a few minutes after the TV has booted, once an IPv6 server shows up in the
+  list above. If it runs too early, it misses that server.
+- An IPv6 DNS address usually carries the prefix your provider hands out. If the
+  leak comes back later, the prefix may have changed: check the list again and run
+  `./scripts/dnsfilter.sh` again.
+
+Fire OS 7 and 8 leave `net.dns1` to `net.dns4` empty, so there this step adds
+nothing and only the gateway is routed.
+
+### Blocked hosts are blocked, but nothing else resolves
+
+Apps that reach a server by its local address (Plex, Channels DVR) keep working,
+while YouTube and anything else that needs a name says it cannot connect. On the
+TV, `ping www.youtube.com` answers `unknown host`, and `dnsfilter.sh` prints
+`NO ANSWER from ...` in its self-test. The filter answers its own list itself and
+forwards everything else to the router, and the router is not answering the TV.
+
+Seen on an Android 14 Fire TV (AFTCU9343B) on an IoT Wi-Fi that hands out a Pi-hole on another
+subnet as its only resolver and drops DNS to the gateway. Check what the network
+hands out:
+
+```sh
+adb shell dumpsys connectivity | grep -o 'DnsAddresses: \[[^]]*\]'
+```
+
+If that is not the gateway, point the filter at it (see "Use resolvers other than
+the router" above) and run `./scripts/dnsfilter.sh` again:
+
+```sh
+./scripts/configure.sh --dns-upstream <resolver-ip>    # the address from DnsAddresses
+./scripts/dnsfilter.sh
+```
 
 ### The filter stopped working after the TV changed network
 
 The config pins `detectDNS = false`, an explicit `fallbackDNS` and
-`routeIPs = <gateway>`. If the TV moved to a network with a different router, run
-`./scripts/dnsfilter.sh` again so those point at the new one.
+`routeIPs = <gateway>`, plus the DNS servers the TV reported at setup. If the TV
+moved to a network with a different router, run `./scripts/dnsfilter.sh` again so
+those point at the new one.
 
 ### The block list is nearly empty
 
@@ -103,6 +302,13 @@ The app wrote its own empty list over the pushed one: a 234-byte or 84-byte file
 with only a header. `dnsfilter.sh` prevents both cases (it empties
 `previousAutoUpdateURL`, writes `FILTERHOSTS.TXT.DLD_CNT` and grants the storage
 permission the Fire OS 8 import needs). Run it again.
+
+### `dnsfilter.sh` says the tracker list does not look right
+
+The HaGeZi download came back as something other than a list of domains (a
+captive portal's sign-in page, a CDN error) or with fewer than 50 entries. The
+script stops before touching the TV, so the filter keeps its previous list. Run it
+again once the network is working; behind a sign-in page, sign in first.
 
 ### Edits to the block list did nothing
 
@@ -117,12 +323,25 @@ A host it needs is blocked. Remove that exact host from
 needs its video CDN and Amazon's push service: answer yes to Prime in
 `configure.sh` (`PRIME=1`, the default) and both stay reachable.
 
-### The clock is wrong on Fire OS 6
+### The clock is wrong on Fire OS 6 or 8
 
-Fire OS 6 syncs its clock over the active network, which is the DNS-only VPN.
-`SYSTEM_DNS=1` in `dumbtv.conf` lets system apps bypass the filter so the clock
-syncs. Every app running as the system user then bypasses it too, so it is off by
-default and ignored on Fire OS 7 and 8, which keep their clock anyway.
+Fire OS 6 syncs its clock over the active network, which is the DNS-only VPN. A Fire
+OS 8 stick (AFTKRT) that loses power when the TV turns off booted with the clock
+weeks behind and never set it while the filter ran (#196).
+
+`SYSTEM_DNS=1` in `dumbtv.conf` (`./scripts/configure.sh --system-dns 1`, then
+`./scripts/dnsfilter.sh -y`) lets system apps bypass the filter so the clock syncs.
+Every app running as the system user then bypasses it too, so it is off by default.
+Fire OS 7 sets its clock through the filter, and the setting is ignored there.
+
+Without it, give the TV an NTP server by address, which needs no lookup:
+`adb shell settings put global ntp_server <address>`, for example a time server on
+your own network. Not the router's address: the filter routes that into its tunnel,
+which only carries DNS. `adb shell settings delete global ntp_server` undoes it.
+
+If Private DNS is on (`adb shell settings get global private_dns_mode` says
+`hostname`), a clock that starts behind the server's certificate stops every lookup,
+the time sync's included: `adb shell settings put global private_dns_mode off`.
 
 ### The VPN consent box is stuck on screen
 
@@ -144,16 +363,37 @@ adb reboot
 
 ### Prime Video does not open
 
-`com.amazon.firebat` is Prime Video on Fire OS 6, 7 and 8, despite the name. It is
-on `never-disable.txt` now; a TV debloated by an older version can get it back
-with `./scripts/restore.sh` or `adb shell pm enable --user 0 com.amazon.firebat`.
-Also check that `PRIME=1` in `dumbtv.conf`.
+`com.amazon.firebat` is Prime Video on Fire OS 6, 7 and 8, despite the name. dumbtv
+disabled it until October 2026 and it is on `never-disable.txt` now, but a later run
+did not switch it back on, so on a TV debloated back then Prime Video stays gone from
+dumbtv home and closes at once from Amazon's (#175). `verify.sh` warns "off, but the TV
+needs them", and `./scripts/debloat.sh -y` turns it back on; no factory reset is needed.
+Also check that `PRIME=1` is set in `dumbtv.conf`.
+
+### Prime Video says "Internet connection error" on Fire OS 6
+
+Browsing works but nothing plays, and logcat shows `DATA_CONNECTION_UNAVAILABLE_ERROR`.
+Android 7.1 marks a VPN as having internet only when it carries all traffic, and the
+filter carries DNS alone, so Prime decides there is no connection. With `PRIME=1`,
+`dnsfilter.sh` keeps `com.amazon.firebat` and `com.amazon.avod` outside the tunnel on
+Fire OS 6; their lookups go to the router instead. Run `./scripts/dnsfilter.sh -y` again
+to apply it on a TV set up with an older version. Another app with the same symptom
+can be added to `androidAppWhiteList` the same way.
+
+### The Fire TV phone app will not connect
+
+The app finds the TV but never pairs, and no PIN appears on screen. logcat shows
+`ActivityNotFoundException ... com.amazon.storm.lightning.tutorial.authentication.SHOW`.
+Despite its name, `com.amazon.storm.lightning.tutorial` holds the PIN screen the app
+pairs with, on Fire OS 6, 7 and 8. It is on `never-disable.txt` now; a TV debloated by an
+older version gets it back with `adb shell pm enable --user 0 com.amazon.storm.lightning.tutorial`.
 
 ### A package I disabled is still running
 
 Persistent system apps keep their process after `pm disable-user`, and
 `am force-stop` does not end it. `debloat.sh` has a second pass for these: it
-takes away their background work and background data.
+takes away their background work, and their background data on metered networks.
+On Wi-Fi and Ethernet the DNS filter is what blocks their uploads.
 
 ### `debloat.sh` reports `PROTECTED`
 
@@ -171,7 +411,10 @@ to repeat.
 
 ### An Amazon update undid the cleanup
 
-Updates re-enable packages and reset settings. The updater itself is protected, so
+Updates re-enable packages and reset settings. `verify.sh` names both: a `warn
+packages` line lists cleanup packages that are on again, and a `warn settings` line
+lists ad-tracking and usage settings back at Amazon's values. `./scripts/debloat.sh -y`
+puts them back. The updater itself is protected, so
 the DNS filter is what keeps updates away: it blocks `softwareupdates.amazon.com`
 and the download servers. If you turned the filter off or factory-reset the TV,
 run `./scripts/all.sh` again.
@@ -195,16 +438,48 @@ level and switch to `data/fireos6/` on their own.
 
 ## Fire OS 8
 
-- **Nothing is blocked after `dnsfilter.sh`.** adb cannot write the app's folder
-  on Android 11, so the script pushes the list to
-  `/sdcard/Android/media/dnsfilter.android/` and you point the app at it once:
-  Advanced settings › Configure filter update › add
+- **How the filter is set up.** adb cannot write personalDNSfilter's folder on
+  Android 11, so `dnsfilter.sh` hands the config and list over with `adb restore`:
+  Android clears the app's data and unpacks the files as the app. The TV shows
+  "Restore my data?" and the script answers it with remote keys; if that fails,
+  press RESTORE MY DATA yourself within a minute. A TV with a backup password
+  set wants it typed into that screen.
+- **"this TV's backup service is off".** Some builds leave Android's backup
+  service out or inactive (`adb shell dumpsys backup | head -1` prints `Inactive`
+  or `Can't find service`), and then `adb restore` does nothing. Only a system app
+  can switch it on. The script then puts the list in
+  `/sdcard/Android/media/dnsfilter.android/` and types the settings into the app's
+  own editor (Advanced settings > Edit configuration file), moving through the app
+  with TAB and OK as a remote would, then presses the app's RESTART and waits for
+  it to load the list. Leave the remote alone while it types; it takes about two
+  minutes.
+- **Nothing is blocked after `dnsfilter.sh`.** Reboot once and run `verify.sh`.
+  If neither way in worked, the script stops at one manual step instead:
+  in personalDNSfilter tick Advanced settings, then Configure filter update,
+  untick every list, press the edit button on the last row (named `<new>`), set
+  the URL to
   `file:///storage/emulated/0/Android/media/dnsfilter.android/dumbtv-blocklist.txt`
-  (three slashes), untick the other entries, reboot. `verify.sh` then checks the
-  blocked hosts directly.
+  (three slashes), tick Active, OK, and reboot. There is no add button: the
+  `<new>` row is how an entry is added.
+- **The app's screen will not move with the remote.** It is a phone layout
+  letterboxed on the TV, and on some TVs it ignores `input tap` too. TAB moves
+  through every control in a fixed order: `adb shell input keyevent KEYCODE_TAB`
+  until `adb shell uiautomator dump` shows `focused="true"` on the one you want,
+  then `KEYCODE_DPAD_CENTER` presses it, and `adb shell input text` types into a
+  focused field.
 - **The on-screen keyboard swallows keys** while a text field is focused. Batch
   deletes into one call (`input keyevent 67 67 67`), and close the keyboard with
-  BACK before tapping another field.
+  BACK before moving to another control.
+- **The launcher's own folder is closed to adb too,** so `home.conf` and the
+  wallpapers cannot be pushed to `/sdcard/Android/data/tv.dumbtv.home/files/`.
+  Write them to `/sdcard/Android/media/tv.dumbtv.home/` instead: the launcher reads
+  both, wallpapers in name order, and a settings file pushed to the media folder is
+  applied once, then remembered, so it does not overwrite a later change made in
+  Options. [launcher/README.md](../launcher/README.md) has the commands.
+- **ADB is off after a reboot.** Some TVs reach their home screen with ADB debugging
+  switched off, so the scripts wait and the address refuses port 5555 (#191). They say
+  so after about half a minute: turn ADB debugging off and on in Developer Options,
+  allow this computer again, and the run carries on by itself.
 - **HOME stays on Amazon's home with launcher 1.1.** Android 11 needs the
   launcher to have a visible window first; 1.2 waits for its cover window. Update
   with `./launcher/install.sh`.

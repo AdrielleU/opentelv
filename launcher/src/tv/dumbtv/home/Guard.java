@@ -5,9 +5,12 @@ import android.app.ActivityOptions;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.PixelFormat;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -22,8 +25,9 @@ import android.view.accessibility.AccessibilityEvent;
  *
  * A plain startActivity right after a HOME press is held back by Android's five-second
  * app-switch delay. An alarm-fired PendingIntent is sent by system_server, which is exempt,
- * so {@link #home} launches through an alarm. That alarm only fires at once when the global
- * {@code alarm_manager_constants} has {@code min_futurity=0}; install.sh sets it.
+ * so {@link #home} launches through an alarm. That alarm only fires at once with
+ * {@code min_futurity=0}, which install.sh sets: in the global {@code alarm_manager_constants}
+ * up to Android 11, in DeviceConfig {@code alarm_manager} from Android 12.
  *
  * Amazon's home is covered with a plain overlay until ours has drawn, so it never shows.
  *
@@ -31,32 +35,63 @@ import android.view.accessibility.AccessibilityEvent;
  * through system_server by an alarm ("Background activity start ... callingUidHasAnyVisibleWindow:
  * false"). The cover is such a window, so the launch waits until the cover has reached the
  * window manager: {@link #launchWhenCovered} fires it from the cover's first draw pass.
+ * Android 14 counts the cover only once the window manager has shown its surface, a frame or
+ * more after that draw, so there the alarm is set {@link #SHOWN_DELAY_MS} later (issue #57).
+ *
+ * Going to standby, Fire OS 7 brings Amazon's home to the front with the screen already off.
+ * The launch alarm is a wakeup alarm because Android holds back other alarms for minutes while
+ * the screen is off, so ours came back up to three minutes into standby, or not before the wake.
+ * Waking resumes whatever was on screen without a new window event. If the last window was
+ * Amazon's home screen, ours is brought up at once. Amazon's other launcher screens, such as
+ * its settings grid, are left alone, as is a wake before any window was seen.
  */
 public final class Guard extends AccessibilityService {
     static final String AMAZON = "com.amazon.tv.launcher";
     private static final String AMAZON_HOME = "com.amazon.tv.launcher.ui.HomeActivity_vNext";
     private static final long COVER_MAX_MS = 1500;
-    private static final long REPEAT_MS = 1000;
     private static final long LAUNCH_FALLBACK_MS = 150;
+    private static final long SHOWN_DELAY_MS = Build.VERSION.SDK_INT >= 34 ? 300 : 0;
 
     private static volatile boolean paused;
     private static Guard running;
+    /**
+     * elapsedRealtime of the last screen-on, 0 once {@link Home} has acted on it. Home reads it to
+     * go on to the {@code wake_input} from home.conf; the resume and the broadcast arrive in either
+     * order, so both sides check.
+     */
+    static volatile long wokeAt;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable uncover = this::uncover;
     private final Runnable launch = () -> home(this);
+    private final HomeRetry homeRetry = new HomeRetry();
+    private final Runnable retry = this::retryHome;
     private View cover;
-    private long lastLaunch;
+    private boolean onAmazonHome;
+    private final BroadcastReceiver screenOn = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context c, Intent i) {
+            wokeAt = SystemClock.elapsedRealtime();
+            if (Home.inFront) Home.woke();
+            else if (!paused && onAmazonHome) launchWhenCovered();
+        }
+    };
 
     /** Lets Amazon's home stay on screen until the user leaves it. */
     static void pause() {
         paused = true;
+        if (running != null) running.cancelRetry();
         Keeper.pause();
     }
 
     static void home(Context c) {
+        home(c, 0);
+    }
+
+    private static void home(Context c, long delayMs) {
         AlarmManager alarms = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
-        alarms.setExact(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime(), launch(c));
+        alarms.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + delayMs,
+                launch(c));
     }
 
     /** Drops a queued launch, so it cannot pull the user back after they opened an app. */
@@ -104,14 +139,21 @@ public final class Guard extends AccessibilityService {
         lp.windowAnimations = 0;
         ((WindowManager) getSystemService(WINDOW_SERVICE)).addView(view, lp);
         cover = view;
+        registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
+        Filter.watch(this);
         // OpenTelV: remote app buttons mapped in home.conf.
         Buttons.start(this);
     }
 
     @Override
     public void onDestroy() {
+        cancelRetry();
         handler.removeCallbacks(uncover);
         handler.removeCallbacks(launch);
+        try {
+            unregisterReceiver(screenOn);
+        } catch (IllegalArgumentException ignored) {
+        }
         if (cover != null) ((WindowManager) getSystemService(WINDOW_SERVICE)).removeView(cover);
         if (running == this) running = null;
         Buttons.stop();
@@ -125,15 +167,40 @@ public final class Guard extends AccessibilityService {
         if (pkg == null) return;
         if (!AMAZON.contentEquals(pkg)) {
             if ("com.android.systemui".contentEquals(pkg) || "android".contentEquals(pkg)) return;
+            boolean own = getPackageName().contentEquals(pkg);
+            if (own && !OwnWindow.showsWhatIsInFront(cls, View.class.getName(),
+                    Home.class.getName(), Home.inFront)) return;
+            cancelRetry();
+            onAmazonHome = false;
             paused = false;
-            if (!getPackageName().contentEquals(pkg)) arrived(this);
+            if (!own) arrived(this);
             return;
         }
-        if (paused || cls == null || !AMAZON_HOME.contentEquals(cls)) return;
+        onAmazonHome = cls != null && AMAZON_HOME.contentEquals(cls);
+        if (paused || !onAmazonHome) {
+            cancelRetry();
+            return;
+        }
+        homeRetry.request();
+        retryHome();
+    }
+
+    /** Retain a throttled HOME event: Fire OS may leave Amazon Home on top after a burst. */
+    private void retryHome() {
+        handler.removeCallbacks(retry);
+        if (running != this || paused || !onAmazonHome || Home.inFront) {
+            homeRetry.cancel();
+            return;
+        }
         long now = SystemClock.uptimeMillis();
-        if (now - lastLaunch < REPEAT_MS) return;
-        lastLaunch = now;
-        launchWhenCovered();
+        if (homeRetry.take(now)) launchWhenCovered();
+        long delay = homeRetry.delay(now);
+        if (delay >= 0) handler.postAtTime(retry, now + delay);
+    }
+
+    private void cancelRetry() {
+        handler.removeCallbacks(retry);
+        homeRetry.cancel();
     }
 
     /**
@@ -160,7 +227,7 @@ public final class Guard extends AccessibilityService {
             public boolean onPreDraw() {
                 cover.getViewTreeObserver().removeOnPreDrawListener(this);
                 handler.removeCallbacks(launch);
-                home(Guard.this);
+                home(Guard.this, SHOWN_DELAY_MS);
                 return true;
             }
         });

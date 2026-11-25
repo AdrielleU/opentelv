@@ -26,6 +26,73 @@ esac
 '''
 
 
+# A TV that has a package, lacks another, and can drop off the network mid-run.
+PRESENT_ADB = r'''#!/usr/bin/env bash
+gone=$([[ -f "$GONE" ]] && echo 1)
+case "$*" in
+  "-s test-tv get-state") [[ -n $gone ]] && exit 1; echo device ;;
+  "-s test-tv shell pm path here.pkg") [[ -n $gone ]] && { echo "error: closed"; exit 1; }; echo "package:/data/app/here.apk" ;;
+  "-s test-tv shell pm path absent.pkg") [[ -n $gone ]] && { echo "error: closed"; exit 1; }; exit 1 ;;
+  *) exit 92 ;;
+esac
+'''
+
+
+class PresentTest(unittest.TestCase):
+    def present(self, pkg, gone=False):
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = Path(tmp) / "adb"
+            adb.write_text(PRESENT_ADB)
+            adb.chmod(0o755)
+            flag = Path(tmp) / "gone"
+            if gone:
+                flag.touch()
+            env = dict(os.environ, ADB=str(adb), ADB_SERIAL="test-tv", GONE=str(flag))
+            return subprocess.run(
+                ["bash", "-c", 'set -uo pipefail; source "$1"; present "$2" && echo YES || echo NO',
+                 "bash", str(ROOT / "scripts" / "lib.sh"), pkg],
+                env=env, capture_output=True, text=True, timeout=30)
+
+    def test_an_installed_package(self):
+        self.assertIn("YES", self.present("here.pkg").stdout)
+
+    def test_a_missing_package(self):
+        self.assertIn("NO", self.present("absent.pkg").stdout)
+
+    def test_a_lost_tv_stops_the_script_instead_of_reading_as_missing(self):
+        result = self.present("absent.pkg", gone=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("NO", result.stdout)
+        self.assertIn("stopped responding", result.stderr)
+
+class RebootWaitTest(unittest.TestCase):
+    def reboot(self, refusals):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ, ADB=str(ROOT / "tests" / "fake_reboot_adb.sh"), ADB_SERIAL="test-tv",
+                       STATE=tmp, REFUSALS=str(refusals), BOOT_SECONDS="0", BOOT_POLL_SECONDS="0",
+                       PM_WRITE_SECONDS="0")
+            return subprocess.run(
+                ["bash", "-c", 'set -uo pipefail; source "$1"; reboot_wait && echo BOOTED',
+                 "bash", str(ROOT / "scripts" / "lib.sh")],
+                env=env, capture_output=True, text=True, timeout=60)
+
+    def test_a_plain_reboot_says_nothing_about_adb(self):
+        result = self.reboot(0)
+        self.assertIn("BOOTED", result.stdout, result.stderr)
+        self.assertNotIn("refuses adb", result.stderr)
+
+    def test_adb_switched_off_at_boot_is_named_once_and_the_wait_goes_on(self):
+        result = self.reboot(8)
+        self.assertIn("BOOTED", result.stdout, result.stderr)
+        self.assertEqual(result.stderr.count("ADB debugging switched itself off"), 1, result.stderr)
+
+    def test_adb_that_never_comes_back_ends_with_what_to_do(self):
+        result = self.reboot(1000)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("BOOTED", result.stdout)
+        self.assertIn("turn ADB debugging off and on in Developer Options", result.stderr)
+
+
 class NeedDeviceTest(unittest.TestCase):
     def test_install_existing_detected_under_pipefail(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -49,6 +116,88 @@ def lib(script, env=None):
          "bash", str(ROOT / "scripts" / "lib.sh")],
         env=dict(os.environ, **(env or {})), capture_output=True, text=True,
     )
+
+
+class FallbackDnsTest(unittest.TestCase):
+    def line(self, upstream):
+        result = lib('fallback_dns', {"DNS_UPSTREAM": upstream})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def test_empty_keeps_the_router(self):
+        self.assertEqual(self.line(""), "")
+
+    def test_only_spaces_keeps_the_router(self):
+        self.assertEqual(self.line("   "), "")
+
+    def test_v4_and_v6(self):
+        self.assertEqual(
+            self.line("76.76.2.45  2606:1a40::45"),
+            "[76.76.2.45]::53::UDP; [2606:1a40::45]::53::UDP",
+        )
+
+    def test_full_v6(self):
+        self.assertEqual(self.line("2001:db8:0:0:0:0:0:1"), "[2001:db8:0:0:0:0:0:1]::53::UDP")
+
+    def test_what_is_not_a_resolver_is_refused(self):
+        for bad in ("one.one.one.one", "999.1.1.1", "1.2.3.4.5", "1.2.3", "0.0.0.0",
+                    "::", ":::1", "1::2::3", "12345::1", "dead.beef.c0de.1",
+                    "1.1.1.1:53", "1.1.1.1;evil", "1.1.1.1#x", "[::1]"):
+            with self.subTest(bad=bad):
+                result = lib('fallback_dns', {"DNS_UPSTREAM": bad})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+
+
+class FrontActivityTest(unittest.TestCase):
+    DUMPS = {
+        "fire os 6": "  Stack #1:\n    mResumedActivity: ActivityRecord{2b u0 tv.dumbtv.home/.Home t12}\n",
+        "fire os 7": ("    mResumedActivity: ActivityRecord{772d87b u0 tv.dumbtv.home/.Home t1954}\n"
+                      "  ResumedActivity: ActivityRecord{772d87b u0 tv.dumbtv.home/.Home t1954}\n"),
+        "android 13": "  * Task{a #9}\n      topResumedActivity=ActivityRecord{9 u0 tv.dumbtv.home/.Home t9}\n",
+        "android 14": ("  * Task{aad0114 #106 type=standard A=10129:com.amazon.screensaver U=0}\n"
+                       "    topResumedActivity=ActivityRecord{22a6f67 u0 com.amazon.screensaver/.MainActivity t106}\n"
+                       "  * Task{b #2 type=home}\n"
+                       "      topResumedActivity=ActivityRecord{3 u0 tv.dumbtv.home/.Home t2}\n"
+                       "  ResumedActivity: ActivityRecord{22a6f67 u0 com.amazon.screensaver/.MainActivity t106}\n"),
+    }
+    WANT = {
+        "fire os 6": "tv.dumbtv.home/.Home",
+        "fire os 7": "tv.dumbtv.home/.Home",
+        "android 13": "tv.dumbtv.home/.Home",
+        "android 14": "com.amazon.screensaver/.MainActivity",
+    }
+
+    def test_every_android_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = Path(tmp) / "adb"
+            adb.write_text('#!/usr/bin/env bash\ncat "$DUMP"\n')
+            adb.chmod(0o755)
+            for name, dump in self.DUMPS.items():
+                with self.subTest(name=name):
+                    (Path(tmp) / "dump").write_text(dump)
+                    result = lib("front_activity", {"ADB": str(adb), "SERIAL": "tv",
+                                                    "DUMP": str(Path(tmp) / "dump")})
+                    self.assertEqual(result.stdout.strip(), self.WANT[name], result.stderr)
+
+
+class UidOfTest(unittest.TestCase):
+    DUMPS = {
+        "fire os 8": "  Package [com.amazon.tv.csapp] (5f1c2d0):\n    userId=10136\n    pkg=Package{1 com.amazon.tv.csapp}\n",
+        "android 14": "  Package [com.amazon.tv.csapp] (5f1c2d0):\n    appId=10136\n    pkg=Package{1 com.amazon.tv.csapp}\n",
+    }
+
+    def test_every_android_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adb = Path(tmp) / "adb"
+            adb.write_text('#!/usr/bin/env bash\ncat "$DUMP"\n')
+            adb.chmod(0o755)
+            for name, dump in self.DUMPS.items():
+                with self.subTest(name=name):
+                    (Path(tmp) / "dump").write_text(dump)
+                    result = lib("uid_of com.amazon.tv.csapp", {"ADB": str(adb), "SERIAL": "tv",
+                                                                "DUMP": str(Path(tmp) / "dump")})
+                    self.assertEqual(result.stdout.strip(), "10136", result.stderr)
 
 
 class FireOsNameTest(unittest.TestCase):

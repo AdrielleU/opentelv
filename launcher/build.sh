@@ -4,8 +4,9 @@
 #   MIN_SDK=25 (default)  one APK for Fire OS 6, 7 and 8: the published release. Compiling
 #                         against android-25 makes javac reject any android.* API Fire OS 6
 #                         lacks; java.* calls are checked against JDK 8 by --release 8, so keep
-#                         them to what Android 7.1 has. Fire OS 7/8 see no permissions: the
-#                         Keeper's three are capped at maxSdkVersion 27.
+#                         them to what Android 7.1 has. Fire OS 7/8 see one permission,
+#                         RECEIVE_BOOT_COMPLETED (Filter); the Keeper's other two are capped
+#                         at maxSdkVersion 27.
 #   MIN_SDK=28            Android 9+ only, as releases up to 1.1 were
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -24,6 +25,9 @@ JAR=$SDK/platforms/android-$MIN_SDK/android.jar
 BT=$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -1 || true)
 [[ -f $JAR ]] || { echo "error: $JAR missing — sdkmanager 'platforms;android-$MIN_SDK'" >&2; exit 1; }
 [[ -x $BT/aapt2 ]] || { echo "error: no build-tools in $SDK — sdkmanager 'build-tools;34.0.0'" >&2; exit 1; }
+# Windows build-tools ship d8 and apksigner as .bat files only.
+D8=$BT/d8; [[ -e $D8 ]] || D8=$BT/d8.bat
+APKSIGNER=$BT/apksigner; [[ -e $APKSIGNER ]] || APKSIGNER=$BT/apksigner.bat
 
 JDK17_PATHS=(/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home /usr/lib/jvm/java-17-openjdk)
 javac_major() { "$1/bin/javac" -version 2>&1 | sed -n 's/^javac \([0-9]*\).*/\1/p'; }
@@ -73,13 +77,15 @@ find src "$WORK/gen" -name '*.java' > "$WORK/sources.txt"
   -classpath "$JAR" -d "$WORK/classes" @"$WORK/sources.txt"
 
 find "$WORK/classes" -name '*.class' > "$WORK/classes.txt"
-"$BT/d8" --release --min-api "$MIN_SDK" --lib "$JAR" --output "$WORK" @"$WORK/classes.txt"
-(cd "$WORK" && zip -q -X app.apk classes.dex)
+"$D8" --release --min-api "$MIN_SDK" --lib "$JAR" --output "$WORK" @"$WORK/classes.txt"
+if command -v zip >/dev/null; then (cd "$WORK" && zip -q -X app.apk classes.dex)
+else (cd "$WORK" && python -I -c "import zipfile; zipfile.ZipFile('app.apk', 'a', zipfile.ZIP_DEFLATED).write('classes.dex')")
+fi
 
 "$BT/zipalign" -f -p 4 "$WORK/app.apk" "$WORK/aligned.apk"
-"$BT/apksigner" sign --ks "$KEYSTORE" --ks-pass "pass:$KEYPASS" --key-pass "pass:$KEYPASS" \
+"$APKSIGNER" sign --ks "$KEYSTORE" --ks-pass "pass:$KEYPASS" --key-pass "pass:$KEYPASS" \
   --out build/dumbtv-home.apk "$WORK/aligned.apk"
-"$BT/apksigner" verify build/dumbtv-home.apk
+"$APKSIGNER" verify build/dumbtv-home.apk
 
 perms=$("$BT/aapt2" dump permissions build/dumbtv-home.apk | grep -c 'uses-permission' || true)
 printf 'built build/dumbtv-home.apk  %s bytes  %s uses-permission entries\n' \

@@ -13,7 +13,7 @@ import android.text.TextPaint;
 import android.text.TextUtils;
 import android.view.View;
 
-/** A card drawn in one pass: banner, or icon plus name, or an input name; focus ring on top. */
+/** A card drawn in one pass: banner, or icon, or an input name; focus ring on top. */
 final class Tile extends View {
     private static final float FOCUS_SCALE = 1.08f;
 
@@ -31,7 +31,11 @@ final class Tile extends View {
     private final Paint dot = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint inner = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint under = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    /** With Tile fill › See-through, inputs wear the corner chips' look: a faint fill, the accent on focus. */
+    private final boolean chip;
+    private final int accent;
     private boolean moving;
+    private final AfterglowTile afterglow;
 
     Tile(Context c, Item item, String kind, CharSequence title, int cardW, int cardH,
             String labels, int accent) {
@@ -41,14 +45,19 @@ final class Tile extends View {
         this.title = title;
         this.cardW = cardW;
         this.cardH = cardH;
-        boolean app = Catalog.APPS.equals(kind);
-        labelH = app ? Ui.dp(c, 26) : 0;
+        boolean app = Catalog.isApp(kind);
+        afterglow = app && "afterglow".equals(Config.get(c).get(Config.TILE_STYLE))
+                ? new AfterglowTile(c, item.id, title, accent) : null;
+        labelH = app && afterglow == null ? Ui.dp(c, 26) : 0;
         labelAlways = "always".equals(labels);
         labelOnFocus = "focus".equals(labels);
         radius = Ui.dp(c, 10);
-        stroke = Ui.dp(c, 2.5f);
+        stroke = Ui.dp(c, afterglow == null ? 2.5f : 1f);
 
-        fill.setColor(app ? Ui.SURFACE : 0xFF17181B);
+        boolean clear = "clear".equals(Config.get(c).get(Config.TILE_FILL));
+        chip = !app && clear;
+        this.accent = accent;
+        fill.setColor(clear ? Ui.CHIP_IDLE : app ? Ui.SURFACE : 0xFF17181B);
         ring.setStyle(Paint.Style.STROKE);
         ring.setStrokeWidth(stroke);
         ring.setColor(accent);
@@ -83,6 +92,7 @@ final class Tile extends View {
         card.set(0, 0, cardW, cardH);
         clip.reset();
         clip.addRoundRect(card, radius, radius, Path.Direction.CW);
+        if (afterglow != null) afterglow.resize(cardW, cardH);
         setPivotX(cardW / 2f);
         setPivotY(cardH / 2f);
     }
@@ -90,43 +100,56 @@ final class Tile extends View {
     @Override
     protected void onFocusChanged(boolean focused, int direction, Rect previous) {
         super.onFocusChanged(focused, direction, previous);
-        float s = focused ? FOCUS_SCALE : 1f;
-        animate().scaleX(s).scaleY(s).setDuration(110).start();
+        animate().cancel();
+        if (focused) {
+            animate().scaleX(FOCUS_SCALE).scaleY(FOCUS_SCALE).setDuration(110).start();
+        } else {
+            setScaleX(1f);
+            setScaleY(1f);
+        }
         invalidate();
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
         Drawable banner = item.banner, icon = item.icon;
+        if (chip) {
+            boolean on = isFocused() && !moving;
+            fill.setColor(on ? accent : Ui.CHIP_IDLE);
+            inner.setColor(on ? Ui.ink(accent) : Ui.CHIP_TEXT);
+        }
         canvas.save();
         canvas.clipPath(clip);
         canvas.drawRect(card, fill);
-        if (banner != null) {
+        if (afterglow != null) {
+            afterglow.draw(canvas, icon, cardW, cardH);
+        } else if (banner != null) {
             banner.setBounds(0, 0, cardW, cardH);
             banner.draw(canvas);
         } else if (icon != null) {
-            int size = cardH * 46 / 100;
-            int left = (cardW - size) / 2, top = cardH * 12 / 100;
+            int size = cardH * 54 / 100;
+            int left = (cardW - size) / 2, top = (cardH - size) / 2;
             icon.setBounds(left, top, left + size, top + size);
             icon.draw(canvas);
-            drawLine(canvas, inner, cardW / 2f, cardH - cardH * 13 / 100f);
-        } else if (!Catalog.APPS.equals(kind)) {
+        } else if (!Catalog.isApp(kind)) {
             drawLine(canvas, inner, cardW / 2f, cardH / 2f - (inner.ascent() + inner.descent()) / 2);
         }
         if (moving) canvas.drawColor(0x99000000);
         canvas.restore();
 
+        if (afterglow != null) afterglow.edge(canvas, cardW, cardH, radius);
+
         if (item.state == TvInputManager.INPUT_STATE_CONNECTED) {
             float r = Ui.dp(getContext(), 3.5f);
             canvas.drawCircle(cardW - r * 3, r * 3, r, dot);
         }
-        if (isFocused() || moving) {
+        if (moving || isFocused() && !chip) {
             float half = stroke / 2;
             ring.setPathEffect(moving ? new DashPathEffect(new float[] {stroke * 3, stroke * 2}, 0) : null);
             canvas.drawRoundRect(half, half, cardW - half, cardH - half, radius - half, radius - half, ring);
         }
         if (moving) drawArrows(canvas);
-        boolean label = banner != null && (labelAlways || labelOnFocus && isFocused());
+        boolean label = labelAlways || labelOnFocus && isFocused();
         if (labelH > 0 && label) {
             drawLine(canvas, under, cardW / 2f, cardH + labelH - Ui.dp(getContext(), 6));
         }

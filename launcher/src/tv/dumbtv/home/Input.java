@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ResolveInfo;
+import java.util.ArrayList;
+import java.util.List;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.media.AudioManager;
@@ -13,11 +15,13 @@ import android.media.tv.TvView;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
@@ -38,8 +42,26 @@ public final class Input extends Activity {
     private static final int WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
     private static final String EXTRA_ID = "input", EXTRA_NAME = "name";
     private static final long NAME_MS = 2500, SIGNAL_MS = 6000;
-    private static final String FAILED = "Could not open input", NO_SIGNAL = "No signal";
+    private static final int FAILED = R.string.input_failed, NO_SIGNAL = R.string.input_no_signal;
     private static final String AMAZON_LIVE_TV = "com.amazon.tv.livetv";
+
+    /**
+     * The Keeper (Fire OS 6) brings this task forward with moveTaskToFront, which restores
+     * whatever was on top rather than relaunching Home. Without this, HOME pressed while this
+     * screen is paused in the background (not finished - only BACK finishes it) comes back to
+     * this screen instead of Home. Guard's singleTask relaunch does not have this problem; only
+     * Keeper's fast path does.
+     */
+    private static volatile Input instance;
+    private static volatile long openedAt;
+    /**
+     * Keeper's UsageStats check can fire within one poll of this screen opening - seen on an
+     * Insignia AFTEAMR311 switching to a CEC source that was waking from standby, not just on a
+     * real HOME press. Finishing on that immediate, spurious fire tears down the TvView session
+     * (onStop calls view.reset()) before the source has a chance to settle, over and over, so the
+     * picture never stabilizes. A screen this new is never what HOME actually meant to leave.
+     */
+    private static final long KEEPER_GRACE_MS = 1000;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final AudioManager.OnAudioFocusChangeListener focus = change -> { };
@@ -48,17 +70,17 @@ public final class Input extends Activity {
     private String id;
     private final Runnable hideName = () -> name.animate().alpha(0f).setDuration(250)
             .withEndAction(() -> name.setVisibility(View.GONE)).start();
-    private final Runnable noSignal = () -> status(NO_SIGNAL);
+    private final Runnable noSignal = () -> status(getString(NO_SIGNAL));
 
     private final TvView.TvInputCallback watch = new TvView.TvInputCallback() {
         @Override
         public void onConnectionFailed(String inputId) {
-            status(FAILED);
+            status(getString(FAILED));
         }
 
         @Override
         public void onDisconnected(String inputId) {
-            status(FAILED);
+            status(getString(FAILED));
         }
 
         @Override
@@ -71,7 +93,7 @@ public final class Input extends Activity {
             // Tuning and buffering are on the way to a picture; everything else means none is coming.
             boolean pending = reason == TvInputManager.VIDEO_UNAVAILABLE_REASON_TUNING
                     || reason == TvInputManager.VIDEO_UNAVAILABLE_REASON_BUFFERING;
-            if (!pending) status(NO_SIGNAL);
+            if (!pending) status(getString(NO_SIGNAL));
         }
     };
 
@@ -81,12 +103,48 @@ public final class Input extends Activity {
      * than Amazon's Live TV claims it.
      */
     static Intent intent(Context c, Config cfg, Item it, CharSequence name) {
+        if (Catalog.isLiveTv(it)) return null;
         String mode = cfg.get(Config.SWITCH);
         List<ResolveInfo> apps = c.getPackageManager().queryIntentActivities(it.intent, 0);
         boolean handOver = "tv".equals(mode) ? !apps.isEmpty()
                 : "auto".equals(mode) && apps.size() == 1 && !viewerIsLiveTv(apps.get(0));
+        // A deliberate choice ("tv", not the "auto" fallback) that silently does nothing is worth a
+        // line in logcat: nothing else marks this - see docs/TROUBLESHOOTING.md, "Open inputs with:
+        // The TV's app" still opens the built-in screen.
+        if ("tv".equals(mode) && apps.isEmpty()) {
+            Keeper.note("switch=tv but no app resolves the passthrough URI for " + it.id
+                    + "; using the built-in screen");
+        }
         if (handOver) return null;
-        return new Intent(c, Input.class).putExtra(EXTRA_ID, it.id).putExtra(EXTRA_NAME, name);
+        return open(c, it.id, name);
+    }
+
+    /** Opens input {@code id} on this screen, whatever "Open inputs with" says. */
+    static Intent open(Context c, String id, CharSequence name) {
+        return new Intent(c, Input.class).putExtra(EXTRA_ID, id).putExtra(EXTRA_NAME, name);
+    }
+
+    /**
+     * Home screen, then every TV input. Used in Options as "Show on startup".
+     */
+    static Config.Choice choice(Config cfg, List<Item> inputs) {
+        List<String> values = new ArrayList<>();
+        List<String> names = new ArrayList<>();
+        values.add("home");
+        names.add("Home screen");
+        String current = cfg.get(Config.WAKE_INPUT, null);
+        boolean foundCurrent = current == null || "home".equals(current) || "off".equals(current);
+        for (Item in : inputs) {
+            values.add(in.id);
+            names.add(Catalog.label(cfg, in).toString());
+            if (in.id.equals(current)) foundCurrent = true;
+        }
+        if (!foundCurrent) {
+            values.add(current);
+            names.add(cfg.get("name." + current, current));
+        }
+        return new Config.Choice(Config.WAKE_INPUT, "Show on startup", "home",
+                values.toArray(new String[0]), names.toArray(new String[0]));
     }
 
     /**
@@ -97,9 +155,21 @@ public final class Input extends Activity {
         return app.activityInfo != null && AMAZON_LIVE_TV.equals(app.activityInfo.packageName);
     }
 
+    /**
+     * Finishes this screen if it is still around (paused or stopped, not yet destroyed) and has
+     * been showing for a while - never a screen that only just opened. Called on Keeper's worker
+     * thread, and before its moveTaskToFront, so the task comes forward without it.
+     */
+    static void finishIfOpen() {
+        Input open = instance;
+        if (open != null && SystemClock.elapsedRealtime() - openedAt >= KEEPER_GRACE_MS) open.finish();
+    }
+
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        openedAt = SystemClock.elapsedRealtime();
+        instance = this;
         id = getIntent().getStringExtra(EXTRA_ID);
         // The video is a layer behind this window; a transparent window lets the text over it blend
         // instead of punching black boxes into the picture.
@@ -133,7 +203,7 @@ public final class Input extends Activity {
         super.onStart();
         showName();
         if (view == null || id == null) {
-            status(FAILED);
+            status(getString(FAILED));
             return;
         }
         ((AudioManager) getSystemService(Context.AUDIO_SERVICE))
@@ -150,11 +220,18 @@ public final class Input extends Activity {
     @SuppressWarnings("deprecation")
     protected void onStop() {
         ui.removeCallbacksAndMessages(null);
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (view != null) {
             view.reset();
             ((AudioManager) getSystemService(Context.AUDIO_SERVICE)).abandonAudioFocus(focus);
         }
         super.onStop();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (instance == this) instance = null;
+        super.onDestroy();
     }
 
     /** BACK leaves; Menu or Info shows the input's name again. Other keys go to the input. */
@@ -181,8 +258,15 @@ public final class Input extends Activity {
         ui.postDelayed(hideName, NAME_MS);
     }
 
+    /**
+     * Keeps the TV awake while the input shows a picture, as Amazon's own input player does;
+     * otherwise the screensaver and then sleep come on mid-film or mid-game. With no
+     * signal the normal timeout applies again, so an input left on a dead source still sleeps.
+     */
     private void status(String text) {
         Log.i("dumbtv", "input " + id + ": " + (text == null ? "video" : text));
+        if (text == null) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         ui.removeCallbacks(noSignal);
         status.setText(text);
         status.setVisibility(text == null ? View.GONE : View.VISIBLE);

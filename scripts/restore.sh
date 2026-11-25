@@ -35,7 +35,8 @@ mkdir -p "$REPORT"
 restore_value() {
   local ns=$1 key=$2 fallback=$3 snapshot="$REPORT/settings-before-$1.txt" v
   if [[ -f $snapshot ]]; then
-    v=$(grep -m1 "^$key=" "$snapshot" 2>/dev/null | cut -d= -f2-)
+    # The snapshot is raw adb output: a CR left on the value would be written back with it.
+    v=$(tr -d '\r' < "$snapshot" | grep -m1 "^$key=" | cut -d= -f2-)
     [[ -n $v ]] && { printf '%s' "$v"; return; }
   fi
   printf '%s' "$fallback"
@@ -68,6 +69,17 @@ for p in $(list_of "$(fos never-disable.txt)" | awk '{print $1}'); do
   b=$(acmd pm enable --user 0 "$p" 2>&1 | head -1)
   printf '  %-46s %s\n' "$p" "${b:-no output}"
 done
+
+step "screensaver"
+if [[ $(dev1 settings get secure screensaver_components) == "$AOSP_DREAM" ]]; then
+  want=$(restore_value secure screensaver_components "$(dev1 settings get secure screensaver_default_component)")
+  if [[ -n $want && $want != null && $want != "$AOSP_DREAM" ]]; then
+    acmd settings put secure screensaver_components "$want" >/dev/null
+    printf '  %-46s %s\n' screensaver_components "$want"
+  fi
+else
+  note "unchanged"
+fi
 
 step "packages that were only starved"
 if [[ -f $REPORT/debloat.txt ]]; then

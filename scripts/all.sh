@@ -7,7 +7,8 @@
 set -uo pipefail
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 FLAGS=("$@")
-CONF="$DIR/../dumbtv.conf"
+# Same default as lib.sh, and a CONF from the caller wins there too.
+CONF=${CONF:-$DIR/../dumbtv.conf}
 
 # bash 3.2 (macOS) errors on "${FLAGS[@]}" when the array is empty under set -u.
 run() { "$@" ${FLAGS[@]+"${FLAGS[@]}"}; }

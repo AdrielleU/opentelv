@@ -16,6 +16,7 @@ import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -43,20 +44,39 @@ public final class Options extends Activity {
         scroll.addView(list);
 
         TextView title = Ui.text(this, 30, Ui.TEXT, Ui.LIGHT);
-        title.setText("Options");
+        title.setText(R.string.options);
         title.setPadding(dp(16), 0, 0, dp(20));
         list.addView(title);
 
-        for (Config.Choice c : Config.CHOICES) list.addView(choice(c));
-        list.addView(action("Next wallpaper", () -> {
+        TvInputManager tv = (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
+        List<Item> inputs = Catalog.inputs(this, tv);
+        Config.Choice startup = inputs.isEmpty() ? null : Input.choice(cfg, inputs);
+
+        for (Config.Choice c : Config.CHOICES) {
+            list.addView(choice(c));
+            if (c == Config.SWITCH && startup != null) list.addView(choice(startup));
+        }
+        LinearLayout packRow = new LinearLayout(this);
+        packRow.setOrientation(LinearLayout.VERTICAL);
+        list.addView(packRow);
+        // Finding the packs opens every theme app's resources: keep it off the UI thread.
+        new Thread(() -> {
+            Config.Choice packs = IconPack.choice(IconPack.installed(getPackageManager()),
+                    getString(R.string.icon_pack_off), getString(R.string.icon_pack_none));
+            runOnUiThread(() -> {
+                if (!isDestroyed()) packRow.addView(choice(packs));
+            });
+        }, "icon-packs").start();
+        list.addView(action(getString(R.string.next_wallpaper), () -> {
             cfg.nextWallpaper();
             refresh();
         }));
         list.addView(gap());
-        list.addView(action("Apps on home screen", () -> pick(Catalog.APPS)));
-        list.addView(action("Inputs on home screen", () -> pick(Catalog.INPUTS)));
-        list.addView(action("Reset order, names and hidden tiles", this::reset));
-        list.addView(action("Open Amazon's home screen", () -> {
+        list.addView(action(getString(R.string.apps_on_home), () -> pick(Catalog.APPS)));
+        list.addView(action(getString(R.string.inputs_on_home), () -> pick(Catalog.INPUTS)));
+        list.addView(action(getString(R.string.reset_layout), this::reset));
+        list.addView(action(getString(R.string.export_settings), this::export));
+        list.addView(action(getString(R.string.open_amazon_home), () -> {
             Guard.amazon(this);
             finish();
         }));
@@ -64,12 +84,8 @@ public final class Options extends Activity {
         TextView about = Ui.text(this, 13, Ui.FAINT, Ui.MEDIUM);
         about.setLineSpacing(0, 1.4f);
         about.setPadding(dp(16), dp(28), 0, 0);
-        about.setText("Settings file: " + cfg.dir + "/" + Config.FILE
-                + "\nOne wallpaper: name it exactly wallpaper.jpg (or .png) and put it in that folder"
-                + "\nSeveral wallpapers: put them in " + Config.WALLPAPERS + "/ with any names, and pick a rotation"
-                + "\nThen pick Background › Image file or Adaptive wallpaper tint. No permission is needed"
-                + "\nAdaptive wallpaper tint shows graphite until you add a wallpaper"
-                + "\nNo internet permission. No tracking, no ads, no accounts.");
+        about.setText(getString(R.string.about, cfg.dir + "/" + Config.FILE, Config.WALLPAPERS,
+                "/sdcard/Android/media/" + getPackageName() + "/", Library.FILE, Library.DIR));
         list.addView(about);
 
         setContentView(scroll);
@@ -89,7 +105,7 @@ public final class Options extends Activity {
 
     private View choice(Config.Choice c) {
         LinearLayout row = row();
-        TextView name = label(c.title);
+        TextView name = label(Text.title(this, c));
         TextView value = Ui.text(this, 16, Ui.MUTED, Ui.MEDIUM);
         value.setGravity(Gravity.END);
         row.addView(name, new LinearLayout.LayoutParams(0, WRAP, 1f));
@@ -103,7 +119,7 @@ public final class Options extends Activity {
         });
         Runnable show = () -> {
             boolean focused = row.isFocused();
-            String text = c.name(cfg.get(c));
+            String text = Text.name(this, c, cfg.get(c));
             if (c == Config.ACCENT) {
                 SpannableString s = new SpannableString("●  " + text);
                 s.setSpan(new ForegroundColorSpan(cfg.accent()), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -117,7 +133,10 @@ public final class Options extends Activity {
             boolean off = (c == Config.DIM || c == Config.ROTATE)
                     && !"image".equals(cfg.get(Config.BACKGROUND))
                     && !"adaptive-tint".equals(cfg.get(Config.BACKGROUND))
-                    || c == Config.SWITCH && "off".equals(cfg.get(Config.INPUTS));
+                    && !(c == Config.DIM && "aurora".equals(cfg.get(Config.BACKGROUND)))
+                    && !(c == Config.DIM && "video".equals(cfg.get(Config.BACKGROUND)))
+                    || c == Config.SWITCH && "off".equals(cfg.get(Config.INPUTS))
+                    || c == Config.ALL_APPS && "on".equals(cfg.get(Config.LOCK));
             row.setAlpha(off ? 0.4f : 1f);
         };
         row.setOnFocusChangeListener((v, has) -> show.run());
@@ -127,10 +146,17 @@ public final class Options extends Activity {
     }
 
     private boolean step(Config.Choice c, int by) {
-        int i = Arrays.asList(c.values).indexOf(cfg.get(c));
         int n = c.values.length;
+        // Nothing to switch to, as Icon pack with none installed: keep what is saved, so a pack
+        // that comes back is still the chosen one.
+        if (n < 2) return true;
+        int i = Arrays.asList(c.values).indexOf(cfg.get(c));
         cfg.set(c.key, c.values[((i + by) % n + n) % n]);
         refresh();
+        if (c == Config.LOCK && "on".equals(cfg.get(c))) {
+            Toast.makeText(this, getString(R.string.lock_on, (int) (Home.UNLOCK_MS / 1000)),
+                    Toast.LENGTH_LONG).show();
+        }
         return true;
     }
 
@@ -188,19 +214,25 @@ public final class Options extends Activity {
             on[i] = Catalog.shown(cfg, kind, items.get(i));
         }
         new AlertDialog.Builder(this, Ui.DIALOG)
-                .setTitle(Catalog.APPS.equals(kind) ? "Apps on home screen" : "Inputs on home screen")
+                .setTitle(Catalog.APPS.equals(kind) ? R.string.apps_on_home : R.string.inputs_on_home)
                 .setMultiChoiceItems(names, on, (d, which, checked) ->
                         Catalog.setShown(cfg, kind, items.get(which), checked))
-                .setPositiveButton("Done", null)
+                .setPositiveButton(R.string.done, null)
                 .show();
+    }
+
+    private void export() {
+        java.io.File copy = cfg.export();
+        Toast.makeText(this, copy == null ? getString(R.string.export_failed)
+                : getString(R.string.export_done, copy.getPath()), Toast.LENGTH_LONG).show();
     }
 
     private void reset() {
         new AlertDialog.Builder(this, Ui.DIALOG)
-                .setTitle("Reset the home screen layout?")
-                .setMessage("Order, names and hidden tiles go back to default. Colors and sizes stay.")
-                .setPositiveButton("Reset", (d, w) -> cfg.removePrefix("name.", "apps.", "inputs."))
-                .setNegativeButton("Cancel", null)
+                .setTitle(R.string.reset_title)
+                .setMessage(R.string.reset_message)
+                .setPositiveButton(R.string.reset, (d, w) -> cfg.removePrefix("name.", "apps.", "inputs.", IconPack.CHOSEN))
+                .setNegativeButton(R.string.cancel, null)
                 .show();
     }
 

@@ -48,8 +48,10 @@ cmd netpolicy set restrict-background true           # Data Saver
 cmd netpolicy add restrict-background-blacklist <uid>
 ```
 
-Their background services are held in standby and their background data is
-refused while Data Saver is on. A process that is already running keeps running,
+Their background services are held in standby. Data Saver refuses their background
+data only on metered networks: a TV on Wi-Fi or Ethernet is not metered (`dumpsys
+netpolicy` lists only the filter's tunnel), so there the DNS filter in section 4 is
+what stops them. A process that is already running keeps running,
 and `am force-stop` is refused for them, so they are starved rather than stopped.
 `lockdown.sh` applies this to `data/fireos/protected.txt`. `debloat.sh` applies the
 same treatment to disabled packages whose process survived the disable.
@@ -75,9 +77,13 @@ downloads a list itself, so it cannot end up with a half-written one.
 Three settings keep the filter in the path:
 
 - `routeIPs = <gateway>` puts the router's resolver inside the tunnel, so an app
-  that asks the router directly is still filtered.
+  that asks the router directly is still filtered. On Fire OS 6, any other DNS
+  server the TV reports (`net.dns1` to `net.dns4`, IPv6 ones included) goes in
+  too. Fire OS 7 and 8 do not report them there.
 - `detectDNS = false` with an explicit `fallbackDNS` stops the filter falling out
-  of the path when the TV changes network.
+  of the path when the TV changes network. That fallback is the router. Set
+  `DNS_UPSTREAM` in `dumbtv.conf` only when those unknown names should go to
+  other resolvers instead (see [TROUBLESHOOTING](TROUBLESHOOTING.md)).
 - `always_on_vpn_app` and a Doze exemption bring it back after a reboot. The app's
   own boot start is a second way back, and the only one on Fire OS 6, which forgets
   the always-on setting at boot.
@@ -103,9 +109,10 @@ only and reads no screen content.
 - Android holds back app launches for 5 s after HOME (`APP_SWITCH_DELAY_TIME`),
   which is why other launchers flash Amazon's home for seconds. `Guard` launches
   through an alarm `PendingIntent`, which `system_server` sends and which is exempt
-  from the delay. `launcher.sh` sets
-  `settings global alarm_manager_constants min_futurity=0` so the alarm fires at
-  once.
+  from the delay. `launcher/install.sh` sets `min_futurity=0` so the alarm fires
+  at once: in `settings global alarm_manager_constants` up to Android 11, and in
+  `device_config` namespace `alarm_manager` on Android 12 and later, which ignore
+  the global setting.
 - A plain overlay covers Amazon's home before it draws and is removed once dumbtv
   home is on screen. HOME from an app shows about 0.3 s of black.
 - Fire OS 8 (Android 11) only lets an app start an activity while it has a visible
@@ -115,9 +122,17 @@ only and reads no screen content.
 **Fire OS 6: a foreground service, `Keeper`.** Fire OS 6.7 refuses third-party
 accessibility services. `Keeper` reads the foreground app from UsageStats and calls
 `moveTaskToFront` when Amazon's home appears. That is not an activity launch, so
-the 5 s delay does not apply. It is the only reason the launcher asks for any
-permission at all, and those three permissions are capped at Android 8.1, so Fire
-OS 7 and 8 see none.
+the 5 s delay does not apply. Its usage-access and task-order permissions are
+capped at Android 8.1, so Fire OS 7 and 8 never see them.
+
+**Keeping the filter running: `Filter`.** Android does not restart a VPN whose
+process was killed, so after lmkd kills personalDNSfilter under memory pressure
+the filter stays off until something starts the app again. dumbtv home sends an
+explicit broadcast to the filter's `BootUpReceiver` whenever the home screen
+opens, at boot, and from a 15-minute alarm that survives dumbtv home being killed
+too. The receiver starts the VPN without showing the app, and does nothing while
+the filter runs. It only accepts senders that hold `RECEIVE_BOOT_COMPLETED`, which
+is the one permission dumbtv home asks for on Fire OS 7 and 8.
 
 Holding HOME still opens Fire OS's quick menu, and the launcher's Options can open
 Amazon's home on purpose.

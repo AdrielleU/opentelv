@@ -14,6 +14,8 @@ com.imdb.livingroom.firetv             # IMDb
 com.amazon.bueller.music               # Amazon Music
 com.amazon.bueller.photos              # Amazon Photos
 com.amazon.gamehub                     # Games
+com.amazon.tahoe                       # Amazon Kids (FreeTime): kid profiles and their PIN screens
+com.amazon.spiderpork                  # Amazon Luna cloud gaming (a stub that fetches the app)
 com.amazon.cloud9                      # Silk browser
 com.amazon.tv.localgallery             # photos and videos from USB storage
 com.amazon.tv.support                  # Help

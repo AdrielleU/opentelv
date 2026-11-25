@@ -1,13 +1,17 @@
 id: androidtv-philips-tpm191e
-title: "Philips OLED705 Android TV (TPM191E, Android 12)"
+title: "Philips TPM191E Android TV (Android 12)"
 contributors:
   - tkightly
+  - damsma
+  - PazkaL
 platform: androidtv
 # Live hardware session by hand over ADB; not an end-to-end run of dumbtv's scripts.
 status: partial
 tested_on: "Philips/PH9M_EA_5599/PH9M_EA_5599:12/STT2.230526.001/4215:user/release-keys"
 models:
   - "55OLED705/12"
+  - "43PUS7304/12"
+  - "55PUS7334/12"
 adb:
   port: 5555
   transport: ethernet
@@ -63,6 +67,42 @@ quirks:
   - >-
     Private DNS (settings global private_dns_mode hostname) validated on
     first try over Ethernet.
+  - >-
+    Second set, 43PUS7304/12 on the same build over Ethernet (2026-10-24):
+    the same two HOME handlers. 37 packages disabled for user 0 first
+    (Philips telemetry and promos, six nettvapp shortcuts, Google feedback
+    and partner setup, katniss, Alexa, unused Google and third-party apps),
+    then dumbtv home 1.2 (release APK, checksum-verified) installed with adb
+    install. HOME resolved to it as soon as tvlauncher was disabled, and
+    tvlauncher, tvrecommendations and all 37 stayed disabled through two
+    reboots. The notification panel goes with tvrecommendations.
+  - >-
+    org.droidtv.eum has a LEANBACK_LAUNCHER activity (How-to videos), so it
+    shows as a tile in dumbtv home. Hide the tile in Options instead of
+    disabling the package: on other Philips boards xtv binds it and the
+    SOURCES drawer stops working without it.
+  - >-
+    On a set sold in Poland, org.droidtv.freeviewplayers and fifteen
+    uk.co.freeview.* packages ship disabled from the factory.
+  - >-
+    adb reboot over Ethernet returned normally; ADB answered again about
+    45 s later.
+  - >-
+    Third set, 55PUS7334/12 (2026-10-23, same build, Ethernet): the firmware
+    re-enables com.phorus.playfi.tv (DTS Play-Fi) at every boot after
+    pm disable-user; com.phorus.playfi.softap stayed disabled.
+  - >-
+    The owner had factory-reset this set shortly before the session. On the
+    first reboot afterwards, org.droidtv.nettvregistration opened its
+    OneTrust consent screen (.onetrust.IABActivity) over live TV, most likely
+    the reset's pending first-run consent rather than anything the debloat
+    did. It cannot be screenshotted (the live TV surface returns a 0-byte
+    capture); the owner rejected it on the TV, after which HOME opened dumbtv
+    home.
+  - >-
+    cmd package set-home-activity tv.dumbtv.home/.Home prints Success and is
+    ignored while tvlauncher is enabled (priority 2 against 0), as
+    docs/OTHER-TVS.md describes.
 notes: >-
   Tested on a real TV on 2026-10-20 by manual ADB. 29 packages disabled for
   user 0, none uninstalled: 11 third-party apps the household does not use,
@@ -76,8 +116,11 @@ notes: >-
   and SmartTube all worked. Left enabled on purpose: com.vewd.core.browserui and
   com.seraphic.openinet.pre (likely the HbbTV / Freeview Play engines),
   org.droidtv.oad (firmware updates), org.droidtv.tv.frameworklogger.
+  A third set, 55PUS7334/12, on 2026-10-23 (dumbtv home 1.2) repeated the Philips,
+  voice and launcher steps; HOME held across a reboot and the owner confirmed
+  HDMI switching from dumbtv home.
 known_limits:
-  - "One set, one firmware; other Philips chassis may differ."
+  - "Three sets (55OLED705/12, 43PUS7304/12, 55PUS7334/12), one firmware; other Philips chassis may differ."
   - >-
     developer_mode and ip_location are the paths the owner was given, and
     ADB worked after following them; the exact menu labels were not

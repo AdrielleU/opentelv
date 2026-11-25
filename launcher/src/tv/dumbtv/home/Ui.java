@@ -4,7 +4,9 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.util.TypedValue;
 import android.widget.TextView;
@@ -14,6 +16,9 @@ final class Ui {
     static final int MUTED = 0x99FFFFFF;
     static final int FAINT = 0x66FFFFFF;
     static final int SURFACE = 0xFF1C1D21;
+    /** The corner chips' unfocused fill and text; input tiles share them. */
+    static final int CHIP_IDLE = 0x14FFFFFF;
+    static final int CHIP_TEXT = 0xD9FFFFFF;
     static final int DIALOG = android.R.style.Theme_DeviceDefault_Dialog_Alert;
     static final Typeface LIGHT = Typeface.create("sans-serif-light", Typeface.NORMAL);
     static final Typeface MEDIUM = Typeface.create("sans-serif-medium", Typeface.NORMAL);
@@ -51,8 +56,22 @@ final class Ui {
         bg.addState(new int[] {android.R.attr.state_focused}, round(accent, radius));
         bg.addState(new int[0], round(idle, radius));
         v.setBackground(bg);
-        v.setTextColor(new ColorStateList(
-                new int[][] {{android.R.attr.state_focused}, {}},
-                new int[] {ink(accent), 0xD9FFFFFF}));
+        v.setTextColor(focused(ink(accent), CHIP_TEXT));
+    }
+
+    /**
+     * A chip icon to go with {@link #focusStyle}: {@code shape} in the chip's text colour and
+     * {@code mark} in the accent, both turning the ink colour on the accent fill when focused.
+     */
+    static Drawable chipIcon(Drawable shape, Drawable mark, int accent, int size) {
+        shape.mutate().setTintList(focused(ink(accent), CHIP_TEXT));
+        mark.mutate().setTintList(focused(ink(accent), accent));
+        LayerDrawable d = new LayerDrawable(new Drawable[] {shape, mark});
+        d.setBounds(0, 0, size, size);
+        return d;
+    }
+
+    private static ColorStateList focused(int on, int off) {
+        return new ColorStateList(new int[][] {{android.R.attr.state_focused}, {}}, new int[] {on, off});
     }
 }

@@ -6,13 +6,16 @@ A home screen for Fire TV that does one job: show your apps and your HDMI inputs
   <img src="../docs/assets/screens/home.png" alt="dumbtv home: a clock, an Apps row and an Inputs row" width="720">
 </p>
 
-- **54 KB.** Plain Java and Android views. No AndroidX, Kotlin, Compose, Play
+- **136 KB.** Plain Java and Android views. No AndroidX, Kotlin, Compose, Play
   Services or any other library.
 - **No network.** There is no `INTERNET` permission, so Android will not let it
   open a connection.
-- **No permissions on Fire OS 7 and 8.** It declares three (usage access, task
-  order, boot completed), each limited to Android 8.1 and earlier, for the Fire OS 6
-  Keeper below. Check: `aapt2 dump permissions dumbtv-home.apk`.
+- **One permission on Fire OS 7 and 8: run at startup.** personalDNSfilter only
+  takes a restart request from an app holding it, and dumbtv home uses it for
+  nothing else: when Android kills the filter under memory pressure, dumbtv home
+  starts it again (on HOME, at boot and every 15 minutes). Fire OS 6 adds usage
+  access and task order for the Keeper below, both limited to Android 8.1 and
+  earlier. Check: `aapt2 dump permissions dumbtv-home.apk`.
 - **No ads, no recommended rows, no account, no analytics, no update checks.**
 - About 60–70 MB of memory with the home screen showing, about 37 MB while an app
   plays (measured on a Fire TV Edition television with 1.4 GB of RAM).
@@ -39,13 +42,22 @@ Undo: `./launcher/install.sh --undo` gives HOME back to Amazon's launcher.
 | Remote | Does |
 |---|---|
 | OK | open the app, or switch to the input |
-| Hold OK, or ☰ Menu | Move, Rename, Hide, App info |
+| Hold OK, or ☰ Menu | Move, Rename, Icon (with an icon pack chosen), Hide, App info |
+| With Child lock on: hold ☰ Menu for 3 s | Options |
 | Move mode | ◀ ▶ moves the tile, ▲ ▼ moves it a line in the grid, any other key drops it |
 | Up from the top row | Options and Settings |
 | Back on the home screen | jump to the first tile |
 | On an input: Back | back to the home screen |
 | On an input: ☰ Menu | show the input's name again |
 | Hold HOME | Fire OS quick menu (Amazon's, unchanged) |
+
+**Settings on Fire OS 6** opens a short list, because Amazon's own settings page draws its first row
+off the top of the screen there (#77). The list has the sections an app other than Amazon's may open
+directly: Notifications, Network, Applications, Equipment Control, Controllers & Bluetooth Devices
+and Device & Software. Any of them the TV lacks is left out. Below them, **All settings…** opens
+Amazon's settings row for the rest (Display & Sounds, Preferences, Accessibility and more), which need
+Amazon's own signature to open. Like Options › Open Amazon's home screen, that stays on Amazon's home until
+you open an app. On Fire OS 7 and 8 the Settings button opens Amazon's settings page as before.
 
 **Options** cycles each setting with ◀ ▶ or OK:
 
@@ -54,16 +66,50 @@ Undo: `./launcher/install.sh --undo` gives HOME back to Amazon's launcher.
 | Accent | white, blue, cyan, green, amber, red, pink, violet |
 | Tiles | small, medium, large |
 | Layout | rows, or a grid that wraps to as many columns as fit |
+| Home position | top (default), bottom: the clock, Options and Settings stay at the top and the rows (with the library banner) move down to the bottom edge, leaving the middle of the screen to the background. Rows that fill the screen anyway stay where they are and scroll as with top |
+| App order | your order, or recently used: the apps row re-sorts on each return home, newest first. It counts apps opened from dumbtv home, plus apps opened any other way (voice, another app) on Fire OS 6, where the launcher already has usage access. Apps never opened keep your order after the rest |
+| All apps section | hidden (default), shown: a separate alphabetical list of every launchable app below your pinned apps. Child lock hides this section |
 | App names | on focus, always, never |
 | Clock | system, 24-hour, 12-hour |
+| Memory meter | hidden, shown: free memory under the date, with a bar of what is in use; amber, with "running low", when Android reports low memory or under 15% is free. It only shows the numbers: it closes and frees nothing, and needs no permission |
 | Inputs row | shown, hidden |
 | Open inputs with | Automatic, the TV's app, dumbtv home (see below) |
 | Background | black, graphite, midnight, image, adaptive, adaptive tint |
 | Image dim, wallpaper rotation | for image backgrounds |
+| Child lock | off, on: hides Options and Settings and turns off Hold OK and ☰ Menu on tiles, so the home screen only opens apps and inputs (see below) |
+| App tile style | original (default), Afterglow: uppercase names inside the tile, a brand-color fade into black, a grayscale installed app icon in the corner, and a thin focus border |
+| Tile fill | solid (default), see-through: what input tiles and apps without a TV banner sit on. See-through is the corner chips' faint fill, so the background shows around the icon, and a focused input fills with the accent like a chip; solid is the dark card. Banners cover the tile either way |
+| Chip style | text (default), icons: Options and Settings become round icon buttons whose knobs and gear hub take the accent color; the name shows next to the icon while it has the focus |
+| Library banner | shown (default), hidden. It only appears once a library folder holds titles (see below) |
+| Icon pack | off, or an installed icon pack; reads "None installed" until one is ([Icon packs](#icon-packs)) |
+
+Icons are loaded at the highest density the app ships, so they stay sharp at tile size.
 
 Below them: Next wallpaper, which apps and inputs appear on the home screen, a
-reset for order, names and hidden tiles, and **Open Amazon's home screen**. Apps
+reset for order, names, picked icons and hidden tiles, and **Open Amazon's home screen**. Apps
 without a TV banner, like the Appstore, start hidden; tick them to add them.
+
+**All apps** is optional. Turn on Options › All apps section to keep the current
+Apps section as **Pinned apps** and add **All apps** below it, in either rows or
+grid layout. The full list includes unpinned apps and apps without TV banners;
+apps with no launcher entry are not listed. Hold OK or press Menu on an app there
+to Pin or Unpin it, Rename it, or open App info. The full list stays alphabetical;
+your custom or recently-used order applies to pinned apps only. Options › Apps on
+home screen still selects those pins. Turning the section off preserves them.
+
+Up and down move between nonempty sections and remember a separate focused tile
+in each. Back and HOME return to the first pinned app, or the first app in All
+apps if nothing is pinned. Child lock hides All apps and disables tile menus, so
+apps hidden from the pinned section stay hidden from this screen while it is locked.
+
+**Afterglow** changes app tiles only, in both rows and grid layouts. Select it in
+Options or set `tile_style=afterglow` in `home.conf`. The name remains visible inside
+each tile regardless of the App names setting; input tiles are unchanged.
+Known apps use locally defined colors; other apps use the selected accent.
+Corner icons come from installed apps, so no brand-logo files or downloads are
+needed. Missing icons still leave the name visible. Switching back to Original
+restores the normal banners and App names behavior. Background and layout remain
+separate choices.
 
 | Grid layout | Adaptive background | Adaptive tint |
 |---|---|---|
@@ -83,6 +129,96 @@ without a TV banner, like the Appstore, start hidden; tick them to add them.
   is connected. Back returns to the home screen, and HOME releases the input at
   once. Nothing new is requested to do this.
 
+On a Fire TV Edition television with a tuner, the row ends with a **Live TV** tile. It
+opens Amazon's Live TV on the last channel watched, with its guide and channel up and
+down, or its channel scan when no channels are set up yet. It is not affected by
+**Open inputs with**, and hides, renames and moves like any other input.
+
+### Open an input on wake or when idle
+
+For a TV that mostly shows one source (a Chromecast, a cable box):
+
+- **Options › Show on startup**: pick whether the TV wakes to the Home screen or
+  directly to an input (HDMI 1, Chromecast, Live TV, etc.). Saved as `wake_input`
+  in [the settings file](#the-settings-file). Fire OS 7 and 8 only: the wake is seen by
+  the HOME guard, which Fire OS 6 does not run.
+- `idle_input=<minutes>` in the settings file: after that long on home with no key
+  pressed, switch to the startup input. Set `idle_input` below the screensaver delay
+  (Settings, 5 minutes by default) and the input's own picture, such as a Chromecast's
+  ambient photos, takes the screensaver's place. HOME still returns to the home screen.
+  `idle_pause=off` stops the idle switch, and `idle_pause=<epoch ms>` stops it until then.
+
+## Child lock
+
+For a TV children use. **Options › Child lock › On** hides the Options and Settings
+buttons and turns off Hold OK and ☰ Menu on tiles, so nobody can move, rename or hide
+a tile, or reach App info, from the home screen. Apps and inputs open as usual.
+
+To change something, **hold ☰ Menu for 3 seconds** on the home screen: Options opens,
+and Child lock › Off brings everything back. A short press does nothing. Over adb,
+`lock=off` in `home.conf` does the same.
+
+It keeps small hands out of dumbtv home; it is not a PIN, and it cannot lock what
+Fire OS owns. Holding HOME still opens Fire OS's own quick menu (on a Fire TV Edition
+TV: Inputs, Apps, Picture, Sound, Sleep Timer), and a remote's app buttons, or its
+Settings button where it has one, still work. A PIN on dumbtv's buttons would leave
+those doors open just the same. Fire OS has its own Parental Controls
+under Settings › Preferences, which use your Amazon PIN; dumbtv leaves them alone.
+
+## Icon packs
+
+dumbtv home can show your apps with the pictures of an installed icon pack: TV icon
+packs in the ADW/Nova format, like those made for launchers such as Projectivy.
+Nothing changes until you install one; dumbtv itself ships and downloads no icons.
+
+1. Install the pack, for example with Downloader or `adb install`.
+2. Pick it under **Options › Icon pack**. Until a pack is installed, the row reads
+   "None installed".
+
+Each app then gets the pack's picture, found by the app's activity, then its package,
+then a picture named after the app (`YouTube` → `youtube`). That last step finds icons
+in TV packs mapped for Google TV package names, which Fire TV apps do not share. Apps
+the pack has nothing for keep their own art. The pack's banners fill the tile.
+
+**One app's icon.** Hold OK (or press ☰ Menu) on its tile and pick **Icon**. The picker
+shows every icon of the chosen pack, those named like the app first; type in the filter
+to narrow it down. **Automatic** goes back to the pack's choice; **App's own picture**
+keeps the app's art. The choice is saved in `home.conf` as
+`icon.<package>=<pack>/<icon>`.
+
+**Switching packs.** A picked icon belongs to its pack and only counts while that pack
+is chosen. Pick another pack, or Off, and every tile follows it; nothing needs fixing by
+hand. Go back to the first pack and its picked icons return. If the chosen pack is
+uninstalled, the tiles show their own art and the row shows Off until it is installed
+again.
+
+**What a pack is.** An app that answers a launcher's theme request
+(`org.adw.launcher.THEMES` or `com.novalauncher.THEME`) and carries an appfilter, the
+list that maps apps to its pictures. Both are needed: themes and wallpaper apps answer
+the request too, but have no appfilter.
+
+**Nothing of the pack runs.** dumbtv home only reads its pictures, and still has no
+internet permission. You never need to open the pack's own app, and you can switch it
+off; its pictures still work:
+
+```sh
+adb shell pm disable-user --user 0 <pack package>
+```
+
+The icons are the pack author's, under the pack's licence.
+
+## Languages
+
+dumbtv home follows the TV's language: English, French, German, Italian, Portuguese (Brazil)
+and Spanish so far.
+Any other language, and any string a translation lacks, shows in English.
+
+To add one, copy `res/values/strings.xml` to `res/values-<code>/strings.xml` (for
+example `values-fr`) and translate the text between the tags. Leave out `app_name` and
+`guard_label`: `scripts/accessibility.sh` finds the HOME service by that label, so it
+stays English. Keep `%s` and `%d` as they are, and keep option values short, since they
+share a row with their name.
+
 ## The settings file
 
 Everything lives in one text file on the TV:
@@ -98,20 +234,39 @@ accent=blue
 tiles=medium
 # rows grid
 layout=rows
+# top bottom
+position=top
+# custom recent (recent = newest first; the history stays in the app's private storage)
+order=custom
+# off on (Child lock hides this section)
+all_apps=off
 # focus always never
 labels=focus
 # auto 24h 12h
 clock=auto
+# off on
+memory=off
 # on off
 inputs=on
 # auto tv home
 switch=auto
-# black graphite midnight image adaptive adaptive-tint
+# home, or an input's id (Options › Show on startup)
+wake_input=home
+# minutes on the home screen before wake_input opens; 0 = never
+idle_input=0
+# unset, off, or an epoch time in ms until which idle_input waits
+idle_pause=
+# black graphite midnight image adaptive adaptive-tint aurora video
 background=black
-# 0 20 40 60 80, image backgrounds only
+# 0 20 40 60 80, image, aurora and video backgrounds only
 dim=40
 # off visit hourly daily daytime (visit = every return to the home screen)
 rotate=off
+# off on
+lock=off
+# off, or an installed icon pack's package
+icon_pack=off
+icon.com.stremio.one=com.example.iconpack/stremio
 apps.order=com.amazon.firetv.youtube,org.videolan.vlc
 apps.hide=org.videolan.vlc
 apps.show=com.amazon.venezia
@@ -126,6 +281,19 @@ Comments go on their own line. Back it up with `adb pull`, restore it with
 
 No permission is needed: the launcher reads its own folder.
 
+The quickest way, on any Fire OS, is `scripts/wallpaper.sh` from the computer. It crops
+each image to the TV's screen and scales it to its size when ImageMagick (`magick`) is
+installed, pushes the images to the media folder below, and turns the image background
+on:
+
+```sh
+./scripts/wallpaper.sh ~/Pictures/*.jpg                              # one or several
+./scripts/wallpaper.sh --rotate hourly --dim 20 --shuffle *.png      # rotate in a random order
+./scripts/wallpaper.sh --replace --crop top portrait.jpg             # drop the old ones first
+```
+
+By hand:
+
 - **One wallpaper:** push it as `wallpaper.jpg` (or `.jpeg`, `.png`, `.webp`) into
   the folder above and set `background=image`.
 - **Several:** push them into a `wallpapers/` subfolder, with any names, and pick a
@@ -136,6 +304,76 @@ adb shell mkdir -p /sdcard/Android/data/tv.dumbtv.home/files/wallpapers
 adb push *.jpg /sdcard/Android/data/tv.dumbtv.home/files/wallpapers/
 ```
 
+### Library banner
+
+A wide banner above the apps row for a few titles the owner picks: the picture
+cross-fades to the next title every 8 seconds with a slow zoom. Up from the apps row
+selects it, ◀ ▶ steps through the titles and OK opens the title in its app. Nothing is
+downloaded: the pictures and the list are pushed from a computer, like wallpapers.
+
+`library/library.conf` in the settings folder lists one title per line, and the
+pictures sit beside it:
+
+```
+# image | title | app package | deep link (optional) | key=value extras (optional)
+castle.jpg   | Castle   | com.hulu.plus     | https://www.hulu.com/series/castle-30fb4e12-5a72-4fe6-85ff-ddb5e88d1a65
+seinfeld.jpg | Seinfeld | com.netflix.ninja | https://www.netflix.com/title/70153373
+```
+
+- The deep link is sent to that app only. When the app does not answer it, the app
+  opens on its own home screen. Lines whose picture is missing, or whose app is not
+  installed, are skipped.
+- Links that open the title's page, checked on a Fire TV Stick (AFTSSS, Fire OS 7):
+  Netflix `https://www.netflix.com/title/<id>`, Hulu `https://www.hulu.com/series/<slug-id>`,
+  HBO Max `https://play.hbomax.com/show/<id>` and `/movie/<id>` (the id from an
+  hbomax.com address), Paramount+ `https://www.paramountplus.com/shows/<name>/` and
+  `/movies/video/<id>/`. `adb shell cmd package resolve-activity -a
+  android.intent.action.VIEW -d <link> <package>` shows whether an app takes a link.
+- A title can open Amazon's home (`com.amazon.tv.launcher`), with or without a link of
+  its own. As with Options › Open Amazon's home screen, HOME then stays on Amazon's home
+  until you open an app.
+- Wide pictures work best; the banner crops to about 3.8 : 1. Only the picture on
+  screen and the one fading in are held in memory.
+
+`scripts/library.sh [--dry-run] [-y] <folder>` takes a folder with `library.conf` and
+the pictures, crops each picture to the banner (with ImageMagick where it is installed,
+else `sips` on macOS, else not at all; an optional `crop.conf` of `image fraction` lines
+moves the crop, 0 top to 1 bottom), asks before it replaces the TV's library folder, and
+returns to the home screen so the banner reloads. Pictures must sit beside
+`library.conf`; a name with a `/` is skipped.
+
+### Fire OS 8: where adb can write
+
+On Fire OS 8 (Android 11) `/sdcard/Android/data/<app>` is closed to `adb`: listing,
+reading and pushing all fail with `Permission denied`, so none of the commands above
+work there. The launcher also looks in its own media folder, which `adb` can still
+write:
+
+```
+/sdcard/Android/media/tv.dumbtv.home/home.conf
+/sdcard/Android/media/tv.dumbtv.home/wallpapers/
+```
+
+```sh
+adb shell mkdir -p /sdcard/Android/media/tv.dumbtv.home/wallpapers
+adb push *.jpg /sdcard/Android/media/tv.dumbtv.home/wallpapers/
+adb push home.conf /sdcard/Android/media/tv.dumbtv.home/home.conf
+```
+
+Wallpapers are read from both folders, in name order. A settings file pushed there
+is applied once, the next time the home screen comes back, and wins over what the TV
+has; what was applied is remembered, so the same push is not applied twice and a
+later change in Options is not overwritten by it.
+
+To back the settings up there, pick Options › Export settings for adb pull. It
+writes a copy named `home-export.conf`, which the launcher never reads, so it is
+not taken for a push. Push it back as `home.conf` to restore it:
+
+```sh
+adb pull /sdcard/Android/media/tv.dumbtv.home/home-export.conf home.conf
+adb push home.conf /sdcard/Android/media/tv.dumbtv.home/home.conf
+```
+
 `rotate=daytime` matches wallpapers to the time of day by name: `morning` or `day`
 (06:00 to 13:00), `afternoon` or `evening` (13:00 to 20:00), `night` (the rest), as
 in `morning-coast.jpg`.
@@ -143,6 +381,22 @@ in `morning-coast.jpg`.
 `background=adaptive` takes a dark colour from the focused app's artwork.
 `background=adaptive-tint` keeps the wallpaper and adds a light wash of that
 colour; without a wallpaper it shows graphite.
+
+`background=aurora` draws slow-drifting light in colours taken from the focused app
+(a green-to-violet night sky for inputs and grey icons). No files; `dim` applies. It
+runs only while the home screen is in front and holds still when animations are off.
+It has a cost on a small TV: on a Fire TV Edition television with 1.4 GB of RAM it drew
+about 30 frames a second using about a third of one core while the home screen showed,
+and nothing once an app was in front.
+
+`background=video` loops `background.mp4` from the settings folder, muted, behind the
+rows. It plays only while the home screen is in front (the decoder is free for whatever
+opens next) and resumes where it stopped. Use 1080p H.264 High@4.1: an x265 HEVC
+encode decoded no frames on a Fire OS 8 MediaTek TV (AFTHY7ABBA). `dim` applies.
+
+```sh
+adb push loop.mp4 /sdcard/Android/media/tv.dumbtv.home/background.mp4
+```
 
 ## How HOME works on Fire OS
 
@@ -156,8 +410,9 @@ protected package. Measured on a Fire OS 7 television:
 2. **Android delays app launches for 5 s after HOME** (`APP_SWITCH_DELAY_TIME`),
    which is why other launchers flash Amazon's home. A launch fired by
    AlarmManager comes from `system_server` and is exempt.
-   `install.sh` sets `settings global alarm_manager_constants min_futurity=0` so
-   the alarm fires at once; `--undo` removes it.
+   `install.sh` sets `min_futurity=0` so the alarm fires at once; `--undo` removes
+   it. Up to Android 11 that is `settings global alarm_manager_constants`; Android
+   12 and later ignore it and read `device_config` namespace `alarm_manager`.
 3. **Amazon's home is covered before it draws.** `Guard` keeps an overlay ready,
    with no surface while idle so it costs nothing during video, and removes it once
    dumbtv home is on screen.
@@ -229,15 +484,26 @@ Delete both to stop.
 | `src/.../Input.java` | the built-in input screen (`TvView`) |
 | `src/.../Config.java` | reads and writes `home.conf` |
 | `src/.../Options.java` | the settings screen |
+| `src/.../IconPack.java` | finds installed icon packs and reads their pictures |
+| `src/.../IconPicker.java` | the screen that picks one app's icon |
+| `src/.../IconMatch.java` | the icon pack text rules, kept free of Android for the host test |
 | `src/.../Ui.java` | shared colours, text and sizes |
 | `src/.../Guard.java` | the Fire OS 7 and 8 HOME takeover |
 | `src/.../Keeper.java` | the Fire OS 6 HOME takeover |
+| `src/.../Recent.java` | when each app was last opened, for App order › Recently used |
+| `src/.../Hero.java` | the library banner: cross-fade, slow zoom, ◀ ▶ and OK |
+| `src/.../Library.java` | reads `library/library.conf` and opens a title in its app |
 | `src/.../BootReceiver.java` | restarts the Keeper after a boot or an update |
 | `build.sh` | aapt2, javac, d8, zipalign, apksigner |
 | `install.sh` | download and checksum (or `--build`), install, HOME hook, `--undo` |
 | `version.env` | the version and the release's SHA-256, read by the three scripts |
 | `release-check.sh` | checks that the version, the built APK and the GitHub release agree |
 | `tests/FocusColorTest.java` | host-side test for `FocusColor`, run by CI |
+| `tests/RecentTest.java` | host-side test for the Recently used order, run by CI |
+| `tests/LibraryTest.java` | host-side test for `library.conf` parsing, run by CI |
+| `tests/ConfigTest.java` | file import and failed-write recovery tests, run by CI |
+| `tests/AppSectionsTest.java` | pinned and All apps selection tests, run by CI |
+| `tests/IconMatchTest.java` | host-side test for the icon pack text rules, run by CI |
 
 ## Releasing
 

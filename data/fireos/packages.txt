@@ -16,7 +16,6 @@ com.amazon.shoptv.client               # shopping on the TV
 com.amazon.shoptv.firetv.client        # "Amazon Live Shopping" tile
 com.amazon.sneakpeek                   # autoplaying promos
 com.amazon.media.recommendations       # sponsored rows
-com.amazon.tahoe                       # paints the ad and content tiles on Amazon's home
 com.amazon.systemnotices               # Amazon promo notices
 com.amazon.tv.website_launcher         # promo web pages
 
@@ -35,7 +34,6 @@ com.amazon.neo.minerva.logcat
 com.amazon.ceviche                     # analytics pipeline, uploads to unagi-*.amazon.com
 com.amazon.connectivitydiag
 com.amazon.tigris
-com.amazon.spiderpork                  # metrics transport
 com.amazon.tv.developer.dataservice
 
 # --- experiments and remote config ---
@@ -49,7 +47,6 @@ com.amazon.tv.easyupgrade
 
 # --- demos, tutorials and empty stubs ---
 com.amazon.tv.democontent.provider
-com.amazon.storm.lightning.tutorial
 com.amazon.tmm.tutorial
 com.amazon.tv.releasenotes
 com.amazon.dummy.alarmclock

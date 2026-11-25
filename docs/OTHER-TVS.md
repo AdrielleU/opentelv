@@ -42,6 +42,12 @@ Device & Software instead of My Fire TV.
 
 Same shell, same `pm disable-user`, different targets.
 
+- **Developer options is hidden until you unlock it.** Open About
+  (Settings › Device Preferences › About on Android TV, Settings › System ›
+  About on Google TV), highlight **Build** and press OK until the TV says you
+  are a developer. Seven presses on most sets, five on a OnePlus Y Series, so
+  count the message, not the presses. Developer options then appears next to
+  About; turn on USB debugging there.
 - **Telemetry is Google's.** Swap the Amazon lists for a Google tracker list, or
   keep the Amazon one only if Amazon apps are installed.
 - **`cmd package set-home-activity` is not enough.** It prints `Success` and is
@@ -50,6 +56,18 @@ Same shell, same `pm disable-user`, different targets.
   working sequence is: install the new launcher first, then
   `pm disable-user` the stock one (`com.google.android.tvlauncher` on older
   builds, `com.google.android.apps.tv.launcherx` on newer ones).
+  `launcher/install.sh` is not the tool here: its Guard watches for Amazon's
+  launcher. Check the release APK against `launcher/version.env`, `adb install`
+  it, then disable the stock launcher.
+- **Play Protect holds `adb install`.** The TV asks whether to install an app
+  "built for an older version of Android" and the command waits until someone
+  answers on the remote. Press Install anyway. dumbtv home targets sdk 28 on
+  purpose: at 30, Android 11's package visibility rules would hide the
+  installed apps from it.
+- **Wait before rebooting.** On low-memory sets `pm disable-user` prints
+  `disabled-user` but the state is saved later, and an `adb reboot` sent a few
+  seconds after it brings the package back. Give it about 40 seconds (seen on a
+  OnePlus Y Series with 900 MB of RAM).
 - **Google TV trap:** `com.google.android.tungsten.setupwraith` also answers HOME
   (`.MainActivity` priority 4, `.RecoveryActivity` priority 1) and can crash-loop
   `system_server` if you disable `launcherx` alone. Disable the whole
@@ -57,7 +75,9 @@ Same shell, same `pm disable-user`, different targets.
   disable survives a reboot.
 - **Private DNS is usually enough**: `settings put global private_dns_mode hostname`
   plus a filtering DoT resolver, with no app to keep alive. Use personalDNSfilter
-  only if you need a custom host list.
+  only if you need a custom host list. Some builds have no Private DNS screen
+  in Settings (a OnePlus Y Series is one), so only adb can switch it off again
+  if the resolver ever stops answering.
 - Fire OS settings keys (`amz_limit_ad_tracking` and friends) do nothing here.
 - A few China-market TCL sets refuse to install any third-party launcher at all.
 
@@ -127,7 +147,7 @@ blocking at the router.
 
 No ADB. Older firmware exposes Chrome DevTools on port 9223; newer sets expose an
 MQTT broker on 36669 for remote control. Both are control surfaces. Web apps can
-be installed by DNS-spoofing `vidaahub.com` ([trialuser/vidaa-appstore](https://github.com/trialuser/vidaa-appstore)),
+be installed by DNS-spoofing `vidaahub.com` ([trialuser/vidaa-appstore](https://github.com/trialuser/vidaa-appstore)).
 That installs apps; it does not remove any.
 
 Hidden menus: service menu via Settings → Sound → Advanced Audio Settings →

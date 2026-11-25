@@ -14,9 +14,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 ID=""; PLATFORM=""; STATUS=""; USE_DEVICE=1
 DEV_MODE=""; IP_LOC=""; MODELS=""; NOTES=""; BRAND=""; MODEL=""; GITHUB=""
-ANDROID="unknown"; SDK="unknown"; BUILD="unknown"; KERNEL="unknown"
+ANDROID="unknown"; SDK="unknown"; BUILD="unknown"; KERNEL="unknown"; DEVICE_SERIAL=""
 PROMPTS=(); QUIRKS=()
 while [[ $# -gt 0 ]]; do
+  case $1 in
+    -y|--yes|--dry-run|--no-device) ;;
+    --*) [[ $# -ge 2 ]] || die "$1 takes a value" ;;
+  esac
   case $1 in
     -y|--yes) ASSUME_YES=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
@@ -47,12 +51,26 @@ ask() { # prompt, default -> stdout
   printf '%s' "${a:-$d}"
 }
 
-# Anything that identifies a household never goes in the catalog.
+# Anything that identifies a household never goes in the catalog: IP and MAC
+# addresses, email addresses, and this TV's serial number.
+identifies() {
+  local ip first
+  # A dotted quad that starts with one digit is a Fire OS version (7.6.9.7), and 127.x
+  # and 0.0.0.0 are what a blocked host answers. Any other one is an address.
+  for ip in $(printf '%s' "$1" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}'); do
+    first=$((10#${ip%%.*}))
+    [[ $first -ge 10 && $first != 127 ]] && return 0
+  done
+  printf '%s' "$1" | grep -Eq '([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}|[^[:space:]@]+@[^[:space:]@]+\.[A-Za-z]{2,}' ||
+    [[ ${#DEVICE_SERIAL} -ge 6 && $1 == *"$DEVICE_SERIAL"* ]]
+}
 clean() {
   local v=$1
   while :; do
-    if printf '%s' "$v" | grep -Eq '([0-9]{1,3}\.){3}[0-9]{1,3}|([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}'; then
-      printf 'That looks like an IP or MAC address. Remove it: ' >&2
+    if identifies "$v"; then
+      # Unattended there is nobody to ask, and the value must not be written.
+      [[ $ASSUME_YES == 1 ]] && die "a value looks like an IP, MAC or email address or the TV's serial number: '$v'"
+      printf 'That looks like an IP, MAC or email address or the serial number. Remove it: ' >&2
       read -r v
       continue
     fi
@@ -67,19 +85,23 @@ yamlq() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 step "this TV"
 if [[ $USE_DEVICE == 1 ]]; then
   need_device
-  BRAND=$(dev1 getprop ro.product.manufacturer)
+  # Fire TV Edition televisions report Amazon as manufacturer; some report the set's maker
+  # as brand. A --brand given on the command line wins over both.
+  [[ -z $BRAND ]] && BRAND=$(dev1 getprop ro.product.brand)
+  [[ -z $BRAND ]] && BRAND=$(dev1 getprop ro.product.manufacturer)
   MODEL=$(dev1 getprop ro.product.model)
   ANDROID=$(dev1 getprop ro.build.version.release)
   SDK=$(dev1 getprop ro.build.version.sdk)
   BUILD=$(dev1 getprop ro.build.display.id)
   KERNEL=$(dev1 uname -r)
+  DEVICE_SERIAL=$(dev1 getprop ro.serialno)
   note "brand    $BRAND"
   note "model    $MODEL"
   note "android  $ANDROID (sdk $SDK)"
   note "build    $BUILD"
   note "kernel   $KERNEL"
   [[ -z $PLATFORM ]] && { if is_fireos; then PLATFORM=fireos; else PLATFORM=androidtv; fi; }
-  # Fire TV Edition televisions report Amazon; the brand on the box is what a reader searches for.
+  # The brand on the box is what a reader searches for.
   BRAND=$(ask "Brand on the box (Amazon for sticks and cubes):" "$BRAND")
 else
   [[ -z $BRAND ]] && BRAND=$(ask "Brand:")
@@ -96,8 +118,25 @@ if [[ $ASSUME_YES == 1 && ( -z $BRAND || -z $MODEL ) ]]; then
   die "unattended mode needs --brand and --model (or drop --no-device so they can be read from the TV)"
 fi
 slug() { printf '%s' "$1" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9.\n' '-' | sed 's/--*/-/g; s/^-//; s/-$//'; }
-[[ -z $ID ]] && ID=$(printf '%s-%s-%s' "$PLATFORM" "$(slug "$BRAND")" "$(slug "$MODEL")")
+id_given=0
+if [[ -n $ID ]]; then
+  id_given=1
+else
+  ID=$(printf '%s-%s-%s' "$PLATFORM" "$(slug "$BRAND")" "$(slug "$MODEL")")
+fi
 printf '%s' "$ID" | grep -Eq '^[a-z0-9][a-z0-9.-]*$' || die "id '$ID' must be lowercase letters, digits, dots or dashes"
+# Checked before the questions, so nobody types answers for a file that cannot be written (#206).
+# A second report on a model goes next to the first under its build, as the catalog's other
+# repeat reports do (fireos-amazon-aftka-ps7713).
+if [[ -e $ROOT/catalog/devices/$ID.yaml ]]; then
+  build=$(slug "${BUILD%%.*}")
+  if [[ $id_given == 0 && -n $build && $build != unknown && ! -e $ROOT/catalog/devices/$ID-$build.yaml ]]; then
+    note "catalog/devices/$ID.yaml exists already; this report goes in $ID-$build.yaml"
+    ID=$ID-$build
+  else
+    die "catalog/devices/$ID.yaml already exists: add your findings to it, or pass --id with another name"
+  fi
+fi
 
 step "the parts only a human knows"
 if [[ -z $DEV_MODE ]]; then
@@ -127,6 +166,18 @@ fi
 [[ -z $NOTES ]] && NOTES=$(clean "$(ask 'One-line summary of the result:' '')")
 [[ -z $GITHUB ]] && GITHUB=$(ask "Your GitHub username, for the credit (Enter to stay anonymous):" "")
 GITHUB=${GITHUB#@}
+# Values given as flags were never asked for, so check everything once more. clean runs
+# in a subshell here, so a refusal has to stop this shell too.
+for v in BRAND MODEL DEV_MODE IP_LOC MODELS NOTES; do
+  cleaned=$(clean "${!v}") || exit 1
+  printf -v "$v" '%s' "$cleaned"
+done
+if [[ ${#PROMPTS[@]} -gt 0 ]]; then
+  for i in "${!PROMPTS[@]}"; do PROMPTS[$i]=$(clean "${PROMPTS[$i]}") || exit 1; done
+fi
+if [[ ${#QUIRKS[@]} -gt 0 ]]; then
+  for i in "${!QUIRKS[@]}"; do QUIRKS[$i]=$(clean "${QUIRKS[$i]}") || exit 1; done
+fi
 [[ -z $GITHUB || $GITHUB =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] || die "'$GITHUB' is not a GitHub username"
 
 case $PLATFORM in
@@ -135,7 +186,6 @@ case $PLATFORM in
   *) DATA_DIR="" ;;
 esac
 OUT="$ROOT/catalog/devices/$ID.yaml"
-[[ -e $OUT ]] && die "$OUT already exists: add your findings to it, or pass --id with the build appended (e.g. $ID-ps7717)"
 [[ $DRY_RUN == 1 ]] && OUT=/dev/stdout
 
 step "writing"
@@ -169,10 +219,12 @@ step "writing"
   fi
   if [[ -n $DATA_DIR ]]; then
     printf 'data:\n'
-    printf '  packages: %s/packages.txt\n' "$DATA_DIR"
-    printf '  protected: %s/protected.txt\n' "$DATA_DIR"
-    printf '  never_disable: %s/never-disable.txt\n' "$DATA_DIR"
-    printf '  user_apps: %s/user-apps.txt\n' "$DATA_DIR"
+    for f in packages protected never-disable user-apps; do
+      # The lists the scripts read on this TV: fos() in lib.sh picks data/fireos6/ below sdk 28.
+      d=$DATA_DIR
+      [[ $DATA_DIR == data/fireos && $SDK =~ ^[0-9]+$ && $SDK -lt 28 && -f $ROOT/data/fireos6/$f.txt ]] && d=data/fireos6
+      printf '  %s: %s/%s.txt\n' "${f//-/_}" "$d" "$f"
+    done
   else
     printf 'data: {}\n'
   fi

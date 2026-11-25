@@ -24,3 +24,5 @@ Aaj Tak                     com.aajtak.firetv
 Twitch                      tv.twitch.android.viewer
 FastScreen                  com.creative.fastscreen.tv
 Appstore                    com.amazon.venezia
+Amazon Kids                 com.amazon.tahoe
+Amazon Luna                 com.amazon.spiderpork

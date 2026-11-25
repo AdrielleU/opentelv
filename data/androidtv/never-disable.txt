@@ -10,3 +10,6 @@ com.android.permissioncontroller
 com.android.tv                           # live TV / input framework
 com.google.android.tv.remote.service     # remote pairing
 com.google.android.tungsten.setupwraith  # first-run setup
+com.mediatek.wwtv.tvcenter               # HDMI inputs and tuner screen (MediaTek TVs: OnePlus Y Series)
+com.mediatek.tvinput                     # TV input services behind it
+com.mediatek.tv.service                  # MediaTek TV middleware

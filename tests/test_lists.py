@@ -44,7 +44,8 @@ class ListsTest(unittest.TestCase):
         for app in ("com.amazon.firetv.youtube", "com.netflix.ninja", "com.amazon.avod",
                     "com.amazon.firebat", "com.amazon.cloud9", "com.amazon.bueller.music",
                     "com.amazon.minitv.android.app", "com.amazon.ftv.screensaver",
-                    "com.amazon.tv.livetv", "com.ivona.tts.oem"):
+                    "com.amazon.tv.livetv", "com.ivona.tts.oem", "com.amazon.tahoe",
+                    "com.amazon.spiderpork"):
             self.assertNotIn(app, cleanup)
 
 

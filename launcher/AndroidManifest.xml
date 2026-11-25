@@ -9,8 +9,10 @@
          maxSdkVersion keeps Fire OS 7/8 on the permission-free accessibility path. -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         android:maxSdkVersion="27" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"
-        android:maxSdkVersion="27" />
+    <!-- Every version: personalDNSfilter's BootUpReceiver only takes broadcasts from apps that
+         hold this, and Filter uses it to restart a filter whose process was killed (#162).
+         A normal permission, granted at install, with no prompt. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REORDER_TASKS"
         android:maxSdkVersion="27" />
 
@@ -41,6 +43,11 @@
             android:screenOrientation="landscape"
             android:windowSoftInputMode="adjustNothing"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|uiMode">
+            <!-- No android:priority here on purpose. Amazon's launcher declares HOME with
+                 priority 950, but Android 11 caps the priority of every non-privileged app
+                 to 0 (PackageManagerService/ComponentResolver.adjustPriority), so a third
+                 party launcher can never out-rank it. The HOME key is taken by the
+                 accessibility Guard instead - see launcher/README.md. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
@@ -68,6 +75,14 @@
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|uiMode" />
 
         <activity
+            android:name=".IconPicker"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape"
+            android:windowSoftInputMode="stateHidden"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|uiMode" />
+
+        <activity
             android:name=".Input"
             android:exported="false"
             android:excludeFromRecents="true"
@@ -92,10 +107,17 @@
             android:name=".Keeper"
             android:exported="false" />
 
+        <!-- directBootAware for LOCKED_BOOT_COMPLETED: Fire OS 6 walks BOOT_COMPLETED through
+             every app's receiver one by one, which reached this one 75 s after Amazon's home
+             appeared on an AFTMM. LOCKED_BOOT_COMPLETED only goes to direct-boot-aware
+             receivers and reached them all within 7 s there. Only the receiver is direct-boot-aware;
+             it waits for the unlocked user before starting the Keeper. -->
         <receiver
             android:name=".BootReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:directBootAware="true">
             <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
