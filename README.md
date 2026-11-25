@@ -39,7 +39,7 @@ and making that setup repeatable on the next TV.
 | **Apps** | One command installs the default set: Appstore apps keep auto-updating, the rest come from their official sources, checksum-checked |
 | **YouTube** | SmartTube instead of the stock app: no ads, no Shorts |
 | **Remote buttons** | The YouTube button opens SmartTube (or any app you pick) |
-| **VPN mode** | WireGuard (default) or Tailscale (with an exit node) as an always-on VPN, and back to the DNS filter with one command |
+| **VPN mode** | A WireGuard tunnel that comes up at every boot once the internet is connected; switch to Tailscale in its app any time |
 | **Undo** | Every step has one |
 
 ## Quick start
@@ -77,27 +77,32 @@ the steps, and [scrcpy](https://github.com/Genymobile/scrcpy) makes them easy
 **4. Set it up** (OpenTelV):
 
 ```sh
+./opentelv/setup.sh                         # home screen, default apps, YouTube button → SmartTube
+./opentelv/setup.sh --vpn home.conf         # the same, plus WireGuard tunnel "home" at every boot
+```
+
+It runs these, which also work one at a time:
+
+```sh
 ./opentelv/home.sh                          # OpenTelV's home screen
 ./opentelv/apps.sh                          # the default apps
 ./opentelv/buttons.sh map --tag r_btn_app_33   # YouTube button → SmartTube
+./opentelv/wg-import.sh home.conf           # import a WireGuard tunnel
+./opentelv/vpn.sh on home                   # tunnel "home" at every boot, once the internet is connected
 ```
 
 The default apps are Netflix, Disney+, HBO Max, Crunchyroll, Spotify, Wholphin,
 Moonlight, Tailscale, WireGuard, Material Files and RustDesk (work in progress, see
 below). `./opentelv/apps.sh --list` shows them, `--choose` asks about each.
 
-**Optional:**
-
-```sh
-./opentelv/vpn.sh on                        # always-on WireGuard; DNS blocking pauses
-./opentelv/vpn.sh off                       # back to the DNS filter
-./opentelv/wg-import.sh home.conf           # import a WireGuard tunnel
-```
+For the VPN, switch on **WireGuard › Settings › Allow remote control apps** once on
+the TV. `./opentelv/vpn.sh status` shows what starts at boot; `./opentelv/vpn.sh off`
+stops it.
 
 ## Undo
 
 ```sh
-./opentelv/vpn.sh off               # VPN mode → DNS filter
+./opentelv/vpn.sh off               # no VPN at boot
 ./opentelv/buttons.sh unmap --tag r_btn_app_33
 ./launcher/install.sh --undo        # HOME back to Amazon's home screen
 ./scripts/restore.sh                # the whole cleanup, from the report/ snapshot

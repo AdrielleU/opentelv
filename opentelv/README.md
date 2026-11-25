@@ -4,6 +4,19 @@ OpenTelV's own additions. Everything outside this folder (and the top-level
 README) is [dumbtv](https://github.com/humblemuzzu/dumbtv), kept as it is upstream
 so its fixes merge in cleanly.
 
+## Setup on a new TV
+
+After dumbtv's cleanup (`./scripts/all.sh`), one command does the rest:
+
+```sh
+./opentelv/setup.sh                    # home screen, default apps, YouTube button
+./opentelv/setup.sh --vpn home.conf    # plus WireGuard tunnel "home" at every boot
+```
+
+It runs `home.sh`, `apps.sh`, `buttons.sh map`, then `wg-import.sh` and `vpn.sh on`
+(each described below). `--tag` names another YouTube button (`--tag ""` skips it);
+`--dry-run` and `-y` pass through.
+
 ## Apps
 
 ```sh
@@ -42,17 +55,25 @@ To add an app, add a line to [`apps.txt`](apps.txt). Any Appstore app works with
 `appstore` as its source; the package name is in `adb shell pm list packages -3` on
 a TV that has it, or in the app's Play Store URL.
 
-### VPN mode: WireGuard (default) or Tailscale exit node
+### VPN mode: WireGuard at boot (default) or Tailscale
 
-Android has one VPN slot. The DNS filter is off by default; when it is on
-(`--dnsfilter 1`) it holds that slot. VPN mode hands the slot to WireGuard (the
-default) or Tailscale; `off` hands it back.
+Android has one VPN slot, and nothing holds it in VPN mode. The home screen asks
+WireGuard for your tunnel once per boot, after the internet is connected (an always-on VPN
+started before the network (Wi-Fi or Ethernet) was up, so the tunnel had no route, and it kept the
+slot, so Tailscale said another VPN app was on). Switch the tunnel off in WireGuard,
+or turn Tailscale on in its app, and that sticks until the next boot.
 
 ```sh
-./opentelv/vpn.sh on            # WireGuard holds the slot, starts at boot
-./opentelv/vpn.sh on tailscale  # or Tailscale instead
-./opentelv/vpn.sh off           # back to the on-TV filter
+./opentelv/vpn.sh on home       # tunnel "home" comes up now and at every boot
+./opentelv/vpn.sh on tailscale  # no tunnel at boot; switch Tailscale on in its app
+./opentelv/vpn.sh off           # no VPN at boot (the DNS filter comes back if it is on)
+./opentelv/vpn.sh status        # what holds the slot, what starts at boot
 ```
+
+The tunnel name is the one WireGuard shows; `on` alone reuses the last one. It needs
+OpenTelV's home screen from November 2026 or later (`./opentelv/home.sh`), and one
+setting on the TV, once: **WireGuard › Settings › Allow remote control apps**.
+Leave WireGuard's own **Restore on boot** off: it starts before the internet is connected.
 
 | | Default | VPN mode |
 |---|---|---|
@@ -61,7 +82,7 @@ default) or Tailscale; `off` hands it back.
 | DNS blocking of Amazon hosts | on | **paused** |
 | Traffic | your network | through the VPN / exit node |
 
-Before the first `on tailscale`, sign in to Tailscale on the TV with scrcpy and turn
+Before you first switch Tailscale on, sign in to Tailscale on the TV with scrcpy and turn
 on **Exit node › Allow LAN access** *before* picking the exit node. Without it, adb,
 scrcpy, RustDesk by IP and Moonlight at home all lose the TV (`adb connect` to the
 TV's Tailscale IP still works).
