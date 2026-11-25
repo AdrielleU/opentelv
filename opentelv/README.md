@@ -15,7 +15,37 @@ After dumbtv's cleanup (`./scripts/all.sh`), one command does the rest:
 
 It runs `home.sh`, `apps.sh`, `buttons.sh map`, then `wg-import.sh` and `vpn.sh on`
 (each described below). `--tag` names another YouTube button (`--tag ""` skips it);
-`--dry-run` and `-y` pass through.
+`--dry-run` and `-y` pass through. On a TV that had OpenTelV before, follow it with
+`./opentelv/backup.sh restore` to bring back your settings and button mappings.
+
+## Fire OS updates
+
+The cleanup keeps Amazon's updater from running in the background, so an update
+started from Settings stalls at "Installing". To update on purpose:
+
+```sh
+./opentelv/update.sh            # backup, let the updater run, wait, then put OpenTelV back
+./opentelv/update.sh --after    # only put OpenTelV back (the TV updated some other way)
+```
+
+It saves a backup, opens the update screen on the TV (you press **Check for Updates**
+and **Install**), waits up to 90 minutes for the TV to come back on a new build, then
+re-applies everything on its own: disabled packages, the updater blocked again, the
+DNS filter if it is on, the home screen, remote buttons and the WireGuard tunnel at
+boot. Then it reboots and runs `verify.sh`.
+
+## Backups: settings and remote buttons
+
+```sh
+./opentelv/backup.sh                    # save into backups/<date> (git-ignored)
+./opentelv/backup.sh restore            # put the newest back (same TV or a new one)
+./opentelv/backup.sh list
+```
+
+Saved: the home screen's settings (order, names, hidden tiles, Options), the remote
+button mappings, the WireGuard tunnel name at boot, wallpapers and library pictures,
+`dumbtv.conf`, and the installed apps (restore names the ones missing). WireGuard
+tunnels themselves are not saved: keep your `.conf` files and re-import them.
 
 ## Apps
 

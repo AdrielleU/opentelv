@@ -96,6 +96,13 @@
             android:exported="true"
             android:permission="android.permission.DUMP" />
 
+        <!-- OpenTelV: Options › Export settings for opentelv/backup.sh; DUMP limits senders
+             to the shell and the system. -->
+        <receiver
+            android:name=".Export"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+
         <!-- OpenTelV: the boot tunnel from opentelv/vpn.sh; DUMP limits senders to the shell
              and the system. -->
         <receiver

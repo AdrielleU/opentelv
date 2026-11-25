@@ -99,6 +99,14 @@ For the VPN, switch on **WireGuard › Settings › Allow remote control apps** 
 the TV. `./opentelv/vpn.sh status` shows what starts at boot; `./opentelv/vpn.sh off`
 stops it.
 
+## Updates and backups
+
+```sh
+./opentelv/update.sh                # install a Fire OS update, then OpenTelV goes back on by itself
+./opentelv/backup.sh                # save your settings and remote button mappings
+./opentelv/backup.sh restore        # put them back, on this TV or a new one
+```
+
 ## Undo
 
 ```sh
