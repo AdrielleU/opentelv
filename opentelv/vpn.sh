@@ -70,6 +70,28 @@ tun_up() {
   [[ -n $name ]] && echo "$name"
 }
 
+# A command with a time limit. A tunnel that takes the home network leaves a network adb
+# session hanging rather than refused, so waiting on it must give up. timeout(1) is GNU;
+# macOS without coreutils runs the command unlimited.
+limited() {
+  local s=$1; shift
+  if command -v timeout >/dev/null; then timeout "$s" "$@"
+  elif command -v gtimeout >/dev/null; then gtimeout "$s" "$@"
+  else "$@"; fi
+}
+alive() { [[ $(limited 10 "$ADB" -s "$SERIAL" shell echo ok 2>/dev/null </dev/null | tr -d '\r') == ok ]]; }
+
+# adb lost the TV as the tunnel came up: exit 3, so update.sh can stop cleanly.
+lan_lost() {
+  note "adb lost the TV as '$1' came up. The tunnel carries all traffic, your home network"
+  note "too (AllowedIPs = 0.0.0.0/0), so this computer, and the Fire TV remote app, cannot"
+  note "reach the TV while it is on. Fix it once, on the TV with the remote:"
+  note "  WireGuard > $1 > pencil (edit) > tick Exclude private IPs > save"
+  note "then: adb connect <tv-ip>:5555 and ./opentelv/vpn.sh status"
+  note "the tunnel at boot is already set; nothing else to run"
+  exit 3
+}
+
 # Nobody keeps the VPN slot: no always-on app, and the filter (if any) stopped.
 free_slot() {
   acmd settings delete secure always_on_vpn_app >/dev/null 2>&1
@@ -127,6 +149,7 @@ on)
   step "plan"
   note "the home screen asks WireGuard for '$tunnel' at every boot, once the internet is connected"
   note "nothing is always-on: switching it off in WireGuard (or using Tailscale) sticks until the next boot"
+  note "the tunnel needs Exclude private IPs ticked (WireGuard > $tunnel > pencil), or adb and the remote app lose the TV"
   [[ $DNSFILTER == 1 ]] && note "the on-TV filter ($FILTER) pauses; ./opentelv/vpn.sh off brings it back"
   if [[ $DRY_RUN == 0 ]]; then confirm "Bring '$tunnel' up on $SERIAL now and at every boot?" || die "cancelled"; fi
   # Pre-granting the app-op skips the VPN consent box, which the remote cannot press.
@@ -143,7 +166,13 @@ on)
   up=""
   for _ in $(seq 1 12); do
     sleep 5
-    adb_reconnect
+    if ! alive; then
+      if [[ $SERIAL == *:* ]]; then
+        limited 10 "$ADB" disconnect "$SERIAL" >/dev/null 2>&1
+        limited 10 "$ADB" connect "$SERIAL" >/dev/null 2>&1
+      fi
+      alive || lan_lost "$tunnel"
+    fi
     up=$(tun_up); [[ -n $up ]] && break
   done
   if [[ -n $up ]]; then

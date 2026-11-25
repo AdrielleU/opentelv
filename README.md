@@ -113,8 +113,12 @@ With a WireGuard tunnel at every boot instead (copy your tunnel file, here
 ./opentelv/setup.sh --vpn home.conf 2>&1 | tee -a "$LOG"
 ```
 
-While WireGuard is open for the import, switch on **WireGuard › Settings › Allow
-remote control apps** with the remote (once).
+While WireGuard is open for the import, with the remote (once):
+
+- **WireGuard › Settings › Allow remote control apps**: on
+- **WireGuard › your tunnel › pencil (edit) › Exclude private IPs**: ticked, then save.
+  Without it the tunnel takes your home network too, and adb and the Fire TV remote
+  app cannot reach the TV while it is on.
 
 **A5. Check and back up:**
 
@@ -145,7 +149,9 @@ your settings and remote buttons back from a backup:
 ./opentelv/backup.sh 2>&1 | tee -a "$LOG"
 ```
 
-**B3. WireGuard at every boot** (replace `home` with the tunnel's name in WireGuard):
+**B3. WireGuard at every boot** (replace `home` with the tunnel's name in WireGuard).
+In WireGuard on the TV first: the tunnel › pencil › tick **Exclude private IPs** ›
+save, and **Settings › Allow remote control apps** on.
 
 ```sh
 ./opentelv/vpn.sh on home 2>&1 | tee -a "$LOG"

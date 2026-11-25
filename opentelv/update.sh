@@ -72,7 +72,15 @@ reapply() {
       note "remote buttons: READ_LOGS granted again"
     fi
     tunnel=$(dev "am broadcast -n $HOME_PKG/.Vpn\\\$Set" | tr -d '\r' | sed -n 's/.*tunnel=\([^ "]*\).*/\1/p')
-    if [[ -n $tunnel ]]; then "$DIR/vpn.sh" on "$tunnel" "${child[@]}" || note "vpn.sh on $tunnel failed; run it again by hand"; fi
+    if [[ -n $tunnel ]]; then
+      "$DIR/vpn.sh" on "$tunnel" "${child[@]}"; rc=$?
+      # 3: the tunnel cut adb off (vpn.sh said how to fix it); the rest needs adb.
+      if [[ $rc == 3 ]]; then
+        note "everything else is re-applied; after the fix above: adb shell reboot, then ./scripts/verify.sh"
+        exit 3
+      fi
+      [[ $rc == 0 ]] || note "vpn.sh on $tunnel failed; run it again by hand"
+    fi
   elif [[ $LAUNCHER == 1 ]]; then
     "$ROOT/scripts/launcher.sh" "${child[@]}" || die "launcher.sh failed"
   fi

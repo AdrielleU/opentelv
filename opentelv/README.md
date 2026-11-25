@@ -102,7 +102,10 @@ or turn Tailscale on in its app, and that sticks until the next boot.
 
 The tunnel name is the one WireGuard shows; `on` alone reuses the last one. It needs
 OpenTelV's home screen from November 2026 or later (`./opentelv/home.sh`), and one
-setting on the TV, once: **WireGuard › Settings › Allow remote control apps**.
+setting on the TV, once: **WireGuard › Settings › Allow remote control apps**. In the
+tunnel itself (pencil icon) tick **Exclude private IPs**: otherwise it carries your home
+network too, and adb, scrcpy and the Fire TV remote app lose the TV while it is on
+(`vpn.sh on` stops and says so).
 Leave WireGuard's own **Restore on boot** off: it starts before the internet is connected.
 
 | | Default | VPN mode |
